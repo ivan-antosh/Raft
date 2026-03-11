@@ -1,0 +1,5 @@
+
+#ifndef REQUEST_VOTE_H
+#define REQUEST_VOTE_H
+
+#endif REQUEST_VOTE_H
