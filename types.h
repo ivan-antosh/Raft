@@ -1,6 +1,8 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#define NUM_SERVERS 5 /* must be consistent with bash script */
+
 /* possible command types, put, get, delete */
 typedef enum {
 	PUT,
@@ -14,5 +16,11 @@ typedef struct {
 	char *x; /* var name */
 	void *y; /* var val, for put */
 } Command;
+
+/* a log entry, containing a command and its term */
+typedef struct {
+	Command *cmd; /* command for log entry */
+	int term; /* term that log entry was added */
+} LogEntry;
 
 #endif
