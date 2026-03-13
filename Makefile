@@ -10,13 +10,13 @@ all: server
 # server
 server: server.o libappendentries.a librequestvote.a
 	$(CC) -o server server.o $(CFLAGS) -L. -lappendentries -lrequestvote
-server.o: server.c
+server.o: server.c types.h
 	$(CC) -o server.o -c $(CFLAGS) $(CPPFLAGS) server.c -I.
 
 # appendentries
 libappendentries.a: append_entries.o
 	$(AR) -rcs libappendentries.a append_entries.o
-append_entries.o: append_entries.c append_entries.h
+append_entries.o: append_entries.c append_entries.h types.h
 	$(CC) -o append_entries.o -c $(CFLAGS) $(CPPFLAGS) append_entries.c -I.
 
 # requestvote
