@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
 	/* arg validation */
 	if(argc != (3 + (3 * (NUM_SERVERS-1)))) {
 		printf("Error: invalid number of arguments\n"
-			"Usage: ./router <id> <port number> (<id> <host name> <port number>) * (%d servers)\n",
+			"Usage: ./server <id> <port number> (<id> <host name> <port number>) * (%d servers)\n",
 			(NUM_SERVERS - 1));
 		return 1;
 	}
