@@ -32,6 +32,8 @@ if [ "$1" == "-tmux" ]; then
 
 	echo "All processes started in tmux session $SESSION"
 
+	tmux a -t $SESSION
+
 else
 	for ((i = 1; i < (NUM_SERVERS + 1); i++)); do
 		$EXECUTABLE $i $((PORT_NUM + i)) $(getServer $i 0) $(getServer $i 1) $(getServer $i 2) $(getServer $i 3) &
