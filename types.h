@@ -6,6 +6,13 @@
 #define NUM_SERVERS 5 /* must be consistent with bash script */
 #define HOST_LEN 64 /* string length for host name */
 
+/* possible server states, follower, candidate, leader */
+typedef enum {
+	FOLLOWER,
+	CANDIDATE,
+	LEADER
+} ServerStateType;
+
 /* possible command types, put, get, delete */
 typedef enum {
 	PUT,
