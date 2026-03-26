@@ -31,6 +31,8 @@ LogEntry *logEntries; /* first index is 1 */
 int commitIndex = 0;
 /* index of highest log entry applied to state machined */
 int lastApplied = 0;
+/* current state of the server, follower, candidate, leader */
+ServerStateType state = FOLLOWER;
 
 /* volatile on leaders (reinitialized after election)*/
 /* index of next log entry to send for each server */
@@ -333,7 +335,56 @@ int main(int argc, char *argv[]) {
 		printf("id: %d, portNum: %d, sockfd: %d, hostname: %s\n", servers[i].id, servers[i].portNum, servers[i].sockfd, servers[i].hostname);
 	}
 
-	/* TODO: the rest */
+	for (;;) {
+		switch (state) {
+			case FOLLOWER:
+				/* TODO: Implment Follower Case */
+
+				/* TODO: Respond to RPC from candidates and leaders */
+
+				/* TODO: check timeout and convert to Candidate */
+				if (id == 1){
+					state = CANDIDATE;
+				}
+
+				printf("Server is in the follower state\n");
+				break;
+			case CANDIDATE:
+				/* TODO: Implement Candidate Case */
+
+				/* start election */
+				currentTerm += 1;
+				votedFor = &id;
+				struct timeval electionTimer = {0, 0};
+
+				/* TODO: Send RequestVote RPC to other servers */
+
+				/* loop till either majority votes received, AppendEntries RPC received or election timeout */
+				for (;;){
+					/* TODO: Check for majority vote */
+
+					/* TODO: check for AppendEntries RPC */
+
+					/* TODO: if election timeout elapses, start new election */
+
+					if (id == 1) {
+						state = LEADER;
+						break;
+					}
+				}
+
+				printf("Server is in the candidate state\n");
+				break;
+			case LEADER:
+				/* TODO: Implement Leader case */
+
+				printf("Server is in the leader state\n");
+				break;
+			default:
+				perror("Invalid server state");
+		}
+		sleep(2); /* TODO: remove */
+	}
 
 	return 0;
 }
