@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include <append_entries.h>
 #include <request_vote.h>
@@ -452,25 +453,62 @@ int main(int argc, char *argv[]) {
 				/* start election */
 				currentTerm += 1;
 				votedFor = &id;
+				int votesReceived = 1;
 				struct timeval electionTimer = {0, 0};
 
-				/* TODO: Send RequestVote RPC to other servers */
+				/* Create threads */
+			  pthread_t threads[NUM_SERVERS-1];
+			  RequestVoteArgs *threadArgs[NUM_SERVERS-1];
+
+				/* TODO: Send RequestVote RPC to other servers concurrently */
+				for (int i = 0; i < (NUM_SERVERS-1); i++){
+					if (servers[i].sockfd == -1){
+						continue;
+					}
+					/* Allocate memory for thread aruguments */
+					threadArgs[i] = (RequestVoteArgs *)malloc(sizeof(RequestVoteArgs));
+					if (threadArgs[i] == NULL) {
+						perror("Allocate memory for thread args");
+					}
+
+					threadArgs[i]->sockfd = servers[i].sockfd;
+					threadArgs[i]->msg.rpcType = VOTE;
+					threadArgs[i]->msg.term = currentTerm;
+					threadArgs[i]->msg.id = id;
+					threadArgs[i]->msg.logIndex = lastApplied;
+					/* TODO: Update logTerm */
+					threadArgs[i]->msg.logTerm = 0;
+
+					if (pthread_create(&threads[i], NULL, RequestVoteThread, threadArgs[i]) != 0) {
+						perror("Create thread");
+					}
+				}
 
 				/* loop till either majority votes received, AppendEntries RPC received or election timeout */
 				for (;;){
-					/* TODO: Check for majority vote */
+					/* check if any threads finished */
+					for (i = 0; i < NUM_SERVERS-1; i++) {
+						RequestResult *result;
+						pthread_join(threads[i], (void *)result);
+
+						if (result->voteGranted) {
+							votesReceived += 1;
+						}
+					}
+
+					printf("All Msg received\n");
+
+					/* Check for majority vote */
+					if (votesReceived > NUM_SERVERS/2) {
+						serverStateType = LEADER;
+						break;
+					}
 
 					/* TODO: check for AppendEntries RPC */
 
 					/* TODO: if election timeout elapses, start new election */
-
-					if (id == 1) {
-						serverStateType = LEADER;
-						break;
-					}
 				}
 
-				printf("Server is in the candidate state\n");
 				break;
 			case LEADER:
 				/* TODO: Implement Leader case */
