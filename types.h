@@ -33,6 +33,12 @@ typedef struct {
 	int term; /* term that log entry was added */
 } LogEntry;
 
+/* a state machine entry, a key value pair */
+typedef struct {
+	char *key;
+	void *val;
+} StateEntry;
+
 /* Server info to store for each server, for connection/communication purposes */
 typedef struct {
 	int id; /* unique, in range 1 - NUM_SERVERS */

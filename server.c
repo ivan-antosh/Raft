@@ -26,6 +26,8 @@ int currentTerm = 0;
 int *votedFor = NULL;
 /* log entries, command for state machine and term when entry received by leader */
 LogEntry *logEntries; /* first index is 1 */
+/* doubly linked list of state machine entries, each are a key value pair */
+List *stateMachine;
 
 /* volatile on all servers */
 /* index of highest log entry known to be committed */
@@ -33,7 +35,7 @@ int commitIndex = 0;
 /* index of highest log entry applied to state machined */
 int lastApplied = 0;
 /* current state of the server, follower, candidate, leader */
-ServerStateType state = FOLLOWER;
+ServerStateType serverStateType = FOLLOWER;
 
 /* volatile on leaders (reinitialized after election)*/
 /* index of next log entry to send for each server */
@@ -44,6 +46,93 @@ int matchIndex[NUM_SERVERS]; /* init to 0 */
 /* OTHER INFO */
 ServerInfo servers[NUM_SERVERS - 1];
 
+/* Comparator for ListSearch() lib call to search for state with key == comparisonArg */
+int StateEntryKeyComparator(void *item, void *comparisonArg) {
+	StateEntry *stateEntry = (StateEntry *)item;
+	char *key = (char *)comparisonArg;
+	if(strcmp(stateEntry->key, key) == 0) {
+		return 1;
+	}
+	return 0;
+}
+
+/* Free a state entry
+ * Can be used in ListFree() lib call
+ */
+void StateEntryFree(void *itemToBeFreed) {
+	StateEntry *state = (StateEntry *)itemToBeFreed;
+	free(state->key);
+	free(state->val);
+	free(state);
+}
+
+/* Apply oldest non-committed log based on lastApplied */
+void applyOldestLog() {
+	/* apply to state machine */
+	lastApplied += 1;
+	Command *cmd = logEntries[lastApplied].cmd;
+	char *key = cmd->x;
+	void *val = cmd->y;
+	CommandType cmdType = cmd->type;
+
+	StateEntry *state = ListSearch(stateMachine, StateEntryKeyComparator, key);
+	switch (cmdType) {
+		case PUT:
+			/* PUT new state, or update existing state */
+			if(state == NULL) {
+				/* create new StateEntry, allocate + set new memory for values */
+				StateEntry *newState = (StateEntry *)malloc(sizeof(StateEntry));
+				
+				char *newKey = NULL;
+				newKey = strdup(val);
+				if(newKey == NULL) {
+					printf("Error: unable to copy string to new state\n");
+					break;
+				}
+				newState->key = newKey;
+				void *newVal = malloc(sizeof(int)); /* TODO: (maybe) just ints for val now, change later */
+				if(newVal == NULL) {
+					printf("Error: failed to allocate memory for value to new state\n");
+					break;
+				}
+				memcpy(newVal, val, sizeof(int));
+				newState->val = newVal;
+
+				ListAppend(stateMachine, newState);
+			} else {
+				/* update state value, allocate + set new val memory */
+				void *newVal = malloc(sizeof(int)); /* TODO: (maybe) just ints for val now, change later */
+				if(newVal == NULL) {
+					printf("Error: failed to allocate memory for new value to state\n");
+					break;
+				}
+				memcpy(newVal, val, sizeof(int));
+				free(state->val);
+				state->val = newVal;
+			}
+			break;
+		case GET:
+			/* nothing to commit for GET */
+			printf("Error: shouldn't have a GET in log\n"); /* maybe */
+			break;
+		case DEL:
+			/* delete state if there is one with the same key */
+			if(state != NULL) {
+				ListRemove(stateMachine);
+				StateEntryFree(state);
+			}
+			break;
+	}
+}
+
+/* For RPC req OR resp, if contains term T > current term, need to update term and set to FOLLOWER */
+void checkTerm(int term) {
+	if (term > currentTerm) {
+		currentTerm = term;
+		/* if term out of date, then server is a follower */
+		serverStateType = FOLLOWER;
+	}
+}
 
 /* get in addr from sock addr */
 void *get_in_addr(struct sockaddr *sa) {
@@ -337,7 +426,14 @@ int main(int argc, char *argv[]) {
 	}
 
 	for (;;) {
-		switch (state) {
+		/* for all server states: */
+		/* if commit index is larger than last applied, increase last applied and commit new log */
+		if(commitIndex > lastApplied) {
+			applyOldestLog();
+		}
+
+		/* server state specific logic: */
+		switch (serverStateType) {
 			case FOLLOWER:
 				/* TODO: Implment Follower Case */
 
@@ -345,7 +441,7 @@ int main(int argc, char *argv[]) {
 
 				/* TODO: check timeout and convert to Candidate */
 				if (id == 1){
-					state = CANDIDATE;
+					serverStateType = CANDIDATE;
 				}
 
 				printf("Server is in the follower state\n");
@@ -369,7 +465,7 @@ int main(int argc, char *argv[]) {
 					/* TODO: if election timeout elapses, start new election */
 
 					if (id == 1) {
-						state = LEADER;
+						serverStateType = LEADER;
 						break;
 					}
 				}
