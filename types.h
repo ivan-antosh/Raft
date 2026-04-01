@@ -20,6 +20,11 @@ typedef enum {
 	DEL
 } CommandType;
 
+typedef enum {
+	APPEND,
+	VOTE
+} RpcType;
+
 /* a command, to be stored in log / committed to state */
 typedef struct {
 	CommandType type; /* type of command */
@@ -51,5 +56,22 @@ typedef struct {
 typedef struct {
 	uint32_t id;
 } HandshakeMsg;
+
+/* RPC message, used for both AppendEntries RPC and RequestVote RPC
+ * described in format: <append> / <vote> -> <append functionality> / <vote functionality>
+ * 	when receiving message, based on rpcType, will process vars differently based on description
+ * need to read 
+ */
+typedef struct {
+	uint16_t rpcType; /* Append / Vote */
+	uint32_t term; /* leader / candidate -> term */
+	uint32_t id; /* leader / candidate -> follower redirect clients / requesting vote */
+	uint32_t logIndex; /* prev / last -> index immediately preceding new ones / last log entry index */
+	uint32_t logTerm; /* prev / last -> prevLogIndex term / term of last log entry */
+
+	/* Append only vars (set to default vals for Vote): */
+	uint32_t entriesLen; /* len of entries -> entries sent separately as a stream of bytes after */
+	uint32_t leaderCommit; /* commitIndex */
+} RPCMsg;
 
 #endif
