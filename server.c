@@ -16,6 +16,7 @@
 #include <append_entries.h>
 #include <request_vote.h>
 #include <types.h>
+#include <helper.h>
 #include "list_lib/list.h"
 
 /* STATE INFO */
@@ -132,6 +133,88 @@ void checkTerm(int term) {
 		currentTerm = term;
 		/* if term out of date, then server is a follower */
 		serverStateType = FOLLOWER;
+	}
+}
+
+void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries) {
+	return;
+}
+
+void handleVoteMsg(RPCMsg *msg) {
+	return;
+}
+
+/* rec totalBytesToRec amount of bytes, convert to LogEntry list and return */
+LogEntry *getMsgEntries(int s, size_t totalBytesToRec, int numEntries) {
+	size_t bytesRec = 0;
+	int check;
+	char *buffer = malloc(totalBytesToRec);
+	if(!buffer) {
+		perror("malloc");
+		return NULL;
+	}
+
+	while(bytesRec < totalBytesToRec) {
+		check = recv(s, (buffer + bytesRec), (totalBytesToRec - bytesRec), 0);
+		if(check <= 0) {
+			printf("Error: did not rec enough bytes for entries\n");
+			free(buffer);
+			return NULL;
+		}
+		bytesRec += check;
+	}
+	
+	LogEntry *entries = deserializeLogEntries(buffer, totalBytesToRec, numEntries);
+	free(buffer);
+	return entries;
+}
+
+/* Receive, handle, respond to incoming message */
+void respondToRPC(int s, fd_set *master) {
+	RPCMsg msg;
+	int check;
+
+	/* receive msg frame */
+	check = recv(s, &msg, sizeof(msg), 0);
+	if (check != sizeof(msg)) {
+		printf("Error: did not rec full msg\n");
+		perror("recv");
+		close(s);
+		FD_CLR(s, master);
+		return;
+	}
+
+	/* if frame indicates entries to rec, rec them */
+	LogEntry *entries = NULL;
+	int numEntries = ntohl(msg.entriesLen);
+	if(numEntries > 0) {
+		size_t totalBytesToRec = numEntries * sizeof(WireLogEntry);
+		entries = getMsgEntries(s, totalBytesToRec, numEntries);
+		if(!entries) {
+			printf("Error: expected to rec log entries, but did not rec\n");
+			close(s);
+			FD_CLR(s, master);
+			return;
+		}
+	}
+	/* TODO: remove, just for checking */
+	if(entries == NULL) {
+		printf("Entries: NULL");
+	} else {
+		for(int i = 0; i < numEntries; i++) {
+			printf("Entry %d: x: %s, y: %d", i, entries[i].cmd->x, *(int *)entries[i].cmd->y);
+		}
+	}
+
+	/* based on frame type, handle msg differently */
+	RPCType type = ntohs(msg.rpcType);
+	if(type == APPEND) {
+		handleAppendMsg(&msg, entries, numEntries);
+	} else if(type == VOTE) {
+		handleVoteMsg(&msg);
+	} else {
+		printf("Error: unknown rpc type on msg rec\n");
+		return;
 	}
 }
 
@@ -439,6 +522,23 @@ int main(int argc, char *argv[]) {
 				/* TODO: Implment Follower Case */
 
 				/* TODO: Respond to RPC from candidates and leaders */
+				read_fds = master;
+				tv.tv_sec = 0;
+				tv.tv_usec = 0;
+				check = select(fdmax + 1, &read_fds, NULL, NULL, &tv);
+				if(check == -1) {
+					perror("select: read on follower");
+					exit(4);
+				}
+				for(i = 0; i <= fdmax; i++) {
+					if(FD_ISSET(i, &read_fds)) {
+						if(i == listener) {
+							handle_new_connection(i, &master, &fdmax);
+						} else {
+							respondToRPC(i, &master);
+						}
+					}
+				}
 
 				/* TODO: check timeout and convert to Candidate */
 				if (id == 1){

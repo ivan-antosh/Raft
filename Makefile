@@ -10,8 +10,8 @@ LIBLIST_DIR=./list_lib
 all: server
 
 # server
-server: server.o libappendentries.a librequestvote.a $(LIBLIST_DIR)/liblist.a
-	$(CC) -o server server.o $(CFLAGS) -L. -lappendentries -lrequestvote -L$(LIBLIST_DIR) -llist
+server: server.o libappendentries.a librequestvote.a libhelper.a $(LIBLIST_DIR)/liblist.a
+	$(CC) -o server server.o $(CFLAGS) -L. -lappendentries -lrequestvote -lhelper -L$(LIBLIST_DIR) -llist
 server.o: server.c types.h
 	$(CC) -o server.o -c $(CFLAGS) $(CPPFLAGS) server.c -I. -I$(LIBLIST_DIR)
 
@@ -26,6 +26,12 @@ librequestvote.a: request_vote.o
 	$(AR) -rcs librequestvote.a request_vote.o
 request_vote.o: request_vote.c request_vote.h
 	$(CC) -o request_vote.o -c $(CFLAGS) $(CPPFLAGS) request_vote.c -I.
+
+# helper
+libhelper.a: helper.o
+	$(AR) -rcs libhelper.a helper.o
+helper.o: helper.c helper.h types.h
+	$(CC) -o helper.o -c $(CFLAGS) $(CPPFLAGS) helper.c -I.
 
 # liblist
 $(LIBLIST_DIR)/liblist.a: $(LIBLIST_DIR)/list.o $(LIBLIST_DIR)/list_adders.o $(LIBLIST_DIR)/list_movers.o $(LIBLIST_DIR)/list_removers.o

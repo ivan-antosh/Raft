@@ -20,10 +20,11 @@ typedef enum {
 	DEL
 } CommandType;
 
+/* RPC types, for RPCMsg */
 typedef enum {
 	APPEND,
 	VOTE
-} RpcType;
+} RPCType;
 
 /* a command, to be stored in log / committed to state */
 typedef struct {
@@ -37,6 +38,14 @@ typedef struct {
 	Command *cmd; /* command for log entry */
 	int term; /* term that log entry was added */
 } LogEntry;
+
+/* a log entry to be sent over socket connection */
+typedef struct {
+	uint16_t cmdType; /* type of command */
+	uint32_t xLen; /* length of var name */
+	uint32_t yLen; /* length of val */
+	uint32_t term; /* term */
+} WireLogEntry;
 
 /* a state machine entry, a key value pair */
 typedef struct {
@@ -63,7 +72,7 @@ typedef struct {
  * need to read 
  */
 typedef struct {
-	uint16_t rpcType; /* Append / Vote */
+	uint16_t rpcType; /* Append / Vote -> converted RPCType */
 	uint32_t term; /* leader / candidate -> term */
 	uint32_t id; /* leader / candidate -> follower redirect clients / requesting vote */
 	uint32_t logIndex; /* prev / last -> index immediately preceding new ones / last log entry index */
