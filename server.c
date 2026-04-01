@@ -15,6 +15,7 @@
 #include <append_entries.h>
 #include <request_vote.h>
 #include <types.h>
+#include "list_lib/list.h"
 
 /* STATE INFO */
 

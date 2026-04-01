@@ -3,15 +3,17 @@ CFLAGS=-g
 CPPFLAGS=-Wall -pedantic
 AR=ar
 
+LIBLIST_DIR=./list_lib
+
 .PHONY: all clean
 
 all: server
 
 # server
-server: server.o libappendentries.a librequestvote.a
-	$(CC) -o server server.o $(CFLAGS) -L. -lappendentries -lrequestvote
+server: server.o libappendentries.a librequestvote.a $(LIBLIST_DIR)/liblist.a
+	$(CC) -o server server.o $(CFLAGS) -L. -lappendentries -lrequestvote -L$(LIBLIST_DIR) -llist
 server.o: server.c types.h
-	$(CC) -o server.o -c $(CFLAGS) $(CPPFLAGS) server.c -I.
+	$(CC) -o server.o -c $(CFLAGS) $(CPPFLAGS) server.c -I. -I$(LIBLIST_DIR)
 
 # appendentries
 libappendentries.a: append_entries.o
@@ -25,7 +27,23 @@ librequestvote.a: request_vote.o
 request_vote.o: request_vote.c request_vote.h
 	$(CC) -o request_vote.o -c $(CFLAGS) $(CPPFLAGS) request_vote.c -I.
 
+# liblist
+$(LIBLIST_DIR)/liblist.a: $(LIBLIST_DIR)/list.o $(LIBLIST_DIR)/list_adders.o $(LIBLIST_DIR)/list_movers.o $(LIBLIST_DIR)/list_removers.o
+	$(AR) -rcs $(LIBLIST_DIR)/liblist.a $(LIBLIST_DIR)/list.o $(LIBLIST_DIR)/list_adders.o $(LIBLIST_DIR)/list_movers.o $(LIBLIST_DIR)/list_removers.o
+
+$(LIBLIST_DIR)/list.o: $(LIBLIST_DIR)/list.c $(LIBLIST_DIR)/list.h
+	$(CC) -o $(LIBLIST_DIR)/list.o -c $(CFLAGS) $(CPPFLAGS) $(LIBLIST_DIR)/list.c -I$(LIBLIST_DIR)
+
+$(LIBLIST_DIR)/list_adders.o: $(LIBLIST_DIR)/list_adders.c $(LIBLIST_DIR)/list.h
+	$(CC) -o $(LIBLIST_DIR)/list_adders.o -c $(CFLAGS) $(CPPFLAGS) $(LIBLIST_DIR)/list_adders.c -I$(LIBLIST_DIR)
+
+$(LIBLIST_DIR)/list_movers.o: $(LIBLIST_DIR)/list_movers.c $(LIBLIST_DIR)/list.h
+	$(CC) -o $(LIBLIST_DIR)/list_movers.o -c $(CFLAGS) $(CPPFLAGS) $(LIBLIST_DIR)/list_movers.c -I$(LIBLIST_DIR)
+
+$(LIBLIST_DIR)/list_removers.o: $(LIBLIST_DIR)/list_removers.c $(LIBLIST_DIR)/list.h
+	$(CC) -o $(LIBLIST_DIR)/list_removers.o -c $(CFLAGS) $(CPPFLAGS) $(LIBLIST_DIR)/list_removers.c -I$(LIBLIST_DIR)
+
 # clean
 clean:
-	rm -rf *.o *.a server
+	rm -rf *.o *.a $(LIBLIST_DIR)/*.o $(LIBLIST_DIR)/*.a server
 
