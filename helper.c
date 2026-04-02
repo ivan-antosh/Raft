@@ -1,19 +1,24 @@
 #include <types.h>
-#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include <helper.h>
 
-char *serializeLogEntry(const LogEntry *entry, size_t *outLen) {
-    return NULL;
-}
-char *serializeLogEntries(const LogEntry *entry, size_t *outLen, int numEntries) {
-    return NULL;
+/* Comparator for ListSearch() lib call to search for state with key == comparisonArg */
+int StateEntryKeyComparator(void *item, void *comparisonArg) {
+	StateEntry *stateEntry = (StateEntry *)item;
+	char *key = (char *)comparisonArg;
+	if(strcmp(stateEntry->key, key) == 0) {
+		return 1;
+	}
+	return 0;
 }
 
-LogEntry *deserializeLogEntry(const char *buf, size_t bufLen) {
-    return NULL;
-}
-
-LogEntry *deserializeLogEntries(const char *buf, size_t bufLen, int numEntries) {
-    return NULL;
+/* Free a state entry
+ * Can be used in ListFree() lib call
+ */
+void StateEntryFree(void *itemToBeFreed) {
+	StateEntry *state = (StateEntry *)itemToBeFreed;
+	free(state->key);
+	free(state);
 }

@@ -5,6 +5,7 @@
 
 #define NUM_SERVERS 5 /* must be consistent with bash script */
 #define HOST_LEN 64 /* string length for host name */
+#define KEY_LEN 32 /* max len for key */
 
 /* possible server states, follower, candidate, leader */
 typedef enum {
@@ -29,28 +30,20 @@ typedef enum {
 /* a command, to be stored in log / committed to state */
 typedef struct {
 	CommandType type; /* type of command */
-	char *x; /* var name */
-	void *y; /* var val, for put */
+	char x[KEY_LEN]; /* key */
+	int y; /* val, for PUT */
 } Command;
 
 /* a log entry, containing a command and its term */
 typedef struct {
-	Command *cmd; /* command for log entry */
+	Command cmd; /* command for log entry */
 	int term; /* term that log entry was added */
 } LogEntry;
 
-/* a log entry to be sent over socket connection */
-typedef struct {
-	uint16_t cmdType; /* type of command */
-	uint32_t xLen; /* length of var name */
-	uint32_t yLen; /* length of val */
-	uint32_t term; /* term */
-} WireLogEntry;
-
 /* a state machine entry, a key value pair */
 typedef struct {
-	char *key;
-	void *val;
+	char key[KEY_LEN];
+	int val;
 } StateEntry;
 
 /* Server info to store for each server, for connection/communication purposes */

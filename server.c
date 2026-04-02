@@ -48,69 +48,29 @@ int matchIndex[NUM_SERVERS]; /* init to 0 */
 /* OTHER INFO */
 ServerInfo servers[NUM_SERVERS - 1];
 
-/* Comparator for ListSearch() lib call to search for state with key == comparisonArg */
-int StateEntryKeyComparator(void *item, void *comparisonArg) {
-	StateEntry *stateEntry = (StateEntry *)item;
-	char *key = (char *)comparisonArg;
-	if(strcmp(stateEntry->key, key) == 0) {
-		return 1;
-	}
-	return 0;
-}
-
-/* Free a state entry
- * Can be used in ListFree() lib call
- */
-void StateEntryFree(void *itemToBeFreed) {
-	StateEntry *state = (StateEntry *)itemToBeFreed;
-	free(state->key);
-	free(state->val);
-	free(state);
-}
-
 /* Apply oldest non-committed log based on lastApplied */
 void applyOldestLog() {
 	/* apply to state machine */
 	lastApplied += 1;
-	Command *cmd = logEntries[lastApplied].cmd;
-	char *key = cmd->x;
-	void *val = cmd->y;
-	CommandType cmdType = cmd->type;
+	Command cmd = logEntries[lastApplied].cmd;
+	char *key = cmd.x;
+	int val = cmd.y;
+	CommandType cmdType = cmd.type;
 
 	StateEntry *state = ListSearch(stateMachine, StateEntryKeyComparator, key);
 	switch (cmdType) {
 		case PUT:
 			/* PUT new state, or update existing state */
 			if(state == NULL) {
-				/* create new StateEntry, allocate + set new memory for values */
+				/* create new StateEntry, allocate + set new memory for item */
 				StateEntry *newState = (StateEntry *)malloc(sizeof(StateEntry));
-				
-				char *newKey = NULL;
-				newKey = strdup(val);
-				if(newKey == NULL) {
-					printf("Error: unable to copy string to new state\n");
-					break;
-				}
-				newState->key = newKey;
-				void *newVal = malloc(sizeof(int)); /* TODO: (maybe) just ints for val now, change later */
-				if(newVal == NULL) {
-					printf("Error: failed to allocate memory for value to new state\n");
-					break;
-				}
-				memcpy(newVal, val, sizeof(int));
-				newState->val = newVal;
+				strcpy(newState->key, key);
+				newState->val = val;
 
 				ListAppend(stateMachine, newState);
 			} else {
-				/* update state value, allocate + set new val memory */
-				void *newVal = malloc(sizeof(int)); /* TODO: (maybe) just ints for val now, change later */
-				if(newVal == NULL) {
-					printf("Error: failed to allocate memory for new value to state\n");
-					break;
-				}
-				memcpy(newVal, val, sizeof(int));
-				free(state->val);
-				state->val = newVal;
+				/* update state value */
+				state->val = val;
 			}
 			break;
 		case GET:
@@ -145,7 +105,7 @@ void handleVoteMsg(RPCMsg *msg) {
 }
 
 /* rec totalBytesToRec amount of bytes, convert to LogEntry list and return */
-LogEntry *getMsgEntries(int s, size_t totalBytesToRec, int numEntries) {
+LogEntry *getMsgEntries(int s, size_t totalBytesToRec) {
 	size_t bytesRec = 0;
 	int check;
 	char *buffer = malloc(totalBytesToRec);
@@ -164,9 +124,7 @@ LogEntry *getMsgEntries(int s, size_t totalBytesToRec, int numEntries) {
 		bytesRec += check;
 	}
 	
-	LogEntry *entries = deserializeLogEntries(buffer, totalBytesToRec, numEntries);
-	free(buffer);
-	return entries;
+	return (LogEntry *)buffer;
 }
 
 /* Receive, handle, respond to incoming message */
@@ -188,8 +146,8 @@ void respondToRPC(int s, fd_set *master) {
 	LogEntry *entries = NULL;
 	int numEntries = ntohl(msg.entriesLen);
 	if(numEntries > 0) {
-		size_t totalBytesToRec = numEntries * sizeof(WireLogEntry);
-		entries = getMsgEntries(s, totalBytesToRec, numEntries);
+		size_t totalBytesToRec = numEntries * sizeof(LogEntry);
+		entries = getMsgEntries(s, totalBytesToRec);
 		if(!entries) {
 			printf("Error: expected to rec log entries, but did not rec\n");
 			close(s);
@@ -202,7 +160,7 @@ void respondToRPC(int s, fd_set *master) {
 		printf("Entries: NULL");
 	} else {
 		for(int i = 0; i < numEntries; i++) {
-			printf("Entry %d: x: %s, y: %d", i, entries[i].cmd->x, *(int *)entries[i].cmd->y);
+			printf("Entry %d: x: %s, y: %d", i, entries[i].cmd.x, entries[i].cmd.y);
 		}
 	}
 
