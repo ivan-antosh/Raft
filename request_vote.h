@@ -3,21 +3,13 @@
 
 #include <types.h>
 
-/* TODO: */
+/* Stores the arguments being passed to the RequestVote threads */
 typedef struct {
 	int sockfd;
 	RPCMsg msg;
 } RequestVoteArgs;
 
-typedef struct {
-	int term; /* current term */
-	int voteGranted; /* 0 fail 1 success */
-} RequestResult;
-
-/* TODO: */
 void *RequestVoteThread(void *ptr);
-
-/* TODO: */
-RequestResult *RequestVote(int sockfd, int rpcType, int term, int candidateId, int lastLogIndex, int lastLogTerm);
+RPCReplyMsg *RequestVote(int sockfd, uint16_t rpcType, uint32_t term, uint32_t candidateId, uint32_t lastLogIndex, uint32_t lastLogTerm);
 
 #endif
