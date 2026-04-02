@@ -76,4 +76,11 @@ typedef struct {
 	uint32_t leaderCommit; /* commitIndex */
 } RPCMsg;
 
+/* RPC reply message as a reply, for both AppendEntries and RequestVote */
+typedef struct {
+	uint32_t term; /* term to update leader/candidate */
+	uint32_t result; /* success (if follower contained entry matching prevLogIndex and prevLogTerm) /
+					    voteGranted (candidate received vote) */
+} RPCReplyMsg;
+
 #endif

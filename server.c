@@ -28,6 +28,8 @@ int currentTerm = 0;
 int *votedFor = NULL;
 /* log entries, command for state machine and term when entry received by leader */
 LogEntry *logEntries; /* first index is 1 */
+int logEntriesSize = 10; /* size of logEntries, increases when runs out of space */
+int logEntryIndex = 1; /* index of last log in logEntries */
 /* doubly linked list of state machine entries, each are a key value pair */
 List *stateMachine;
 
@@ -96,11 +98,92 @@ void checkTerm(int term) {
 	}
 }
 
-void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries) {
+/* handle an append message */
+void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg *replyMsg) {
+	int term = ntohl(msg->term);
+	/* int leaderId = ntohl(msg->id);*/ /* TODO: for when we do client redirection */
+	int prevLogIndex = ntohl(msg->logIndex);
+	int prevLogTerm = ntohl(msg->logTerm);
+	int leaderCommit = ntohl(msg->leaderCommit);
+
+	/* 1. reply false if term < currentTerm */
+	/* 2. reply false if log doesnt have entry at prevLogIndex with same term */
+	if(term < currentTerm || (prevLogIndex <= logEntryIndex && logEntries[prevLogIndex].term != prevLogTerm)) {
+		/* reply */
+		replyMsg->result = htonl(0);
+		return;
+	}
+	replyMsg->result = htonl(1);
+
+	/* 3. remove logs at and after a conflicting log */
+	int lastNonConflictIndex = 0;
+	for(int i = 1; i <= numEntries; i++) {
+		int logIndex = i + prevLogIndex;
+		/* check if index out of bounds */
+		if(logIndex >= logEntriesSize) {
+			/* TODO: increase log entry size here */
+			break;
+		}
+		/* check if past last log */
+		if(logEntryIndex < logIndex) {
+			break;
+		}
+		LogEntry entry = logEntries[logIndex];
+		/* if log entry term does not match new log entry term, remove logs */
+		if(entry.term != entries[i].term) {
+			memset(&logEntries[logIndex], 0, sizeof(LogEntry) * (logEntryIndex - (logIndex) + 1));
+			logEntryIndex = logIndex - 1;
+			break;
+		}
+		/* no conflict, continue loop and indicate last non conflicting index */
+		lastNonConflictIndex += 1;
+	}
+	/* 4. append any new entries not in log */
+	int numNewLogs = numEntries - lastNonConflictIndex;
+	if(logEntryIndex + numNewLogs >= logEntriesSize) {
+		/* TODO: increase log entry size here */
+	}
+	if(lastNonConflictIndex != numEntries) {
+		memcpy(&logEntries[logEntryIndex], &entries[lastNonConflictIndex], sizeof(LogEntry) * numNewLogs);
+	}
+	logEntryIndex += numNewLogs;
+	/* 5. update commitIndex if leaderCommit is larger by min(leaderCommit, index of last new entry) */
+	if(leaderCommit > commitIndex) {
+		if(leaderCommit < logEntryIndex) {
+			commitIndex = leaderCommit;
+		} else {
+			commitIndex = logEntryIndex;
+		}
+	}
+
+	/* then update term */
+	checkTerm(term);
+
 	return;
 }
 
-void handleVoteMsg(RPCMsg *msg) {
+/* handle a vote message */
+void handleVoteMsg(RPCMsg *msg, RPCReplyMsg *replyMsg) {
+	int term = ntohl(msg->term);
+	int candidateId = ntohl(msg->id);
+	int lastLogIndex = ntohl(msg->logIndex);
+	int lastLogTerm = ntohl(msg->logTerm);
+
+	if(term < currentTerm) {
+		/* 1. dont grant vote if term is less */
+		replyMsg->result = htonl(0);
+	} else if((votedFor == NULL || *votedFor == candidateId) &&
+		((lastLogTerm > currentTerm) || (lastLogTerm == currentTerm && lastLogIndex >= logEntryIndex))) {
+		/* 2. grant vote if votedFor is null or candidateId, and candidate log is atleast as up-to-date as log */
+		replyMsg->result = htonl(1);
+	} else {
+		/* otherwise, dont grant vote */
+		replyMsg->result = htonl(0);
+	}
+
+	/* then update term */
+	checkTerm(term);
+
 	return;
 }
 
@@ -169,18 +252,31 @@ int respondToRPC(int s, fd_set *master) {
 		}
 	}
 
-	/* based on frame type, handle msg differently */
+	/* based on rpc type, handle msg differently */
 	RPCType type = ntohs(msg.rpcType);
+	RPCReplyMsg replyMsg;
+	replyMsg.term = htonl(currentTerm);
+	int intType = 0;
 	if(type == APPEND) {
-		handleAppendMsg(&msg, entries, numEntries);
-		return 1;
+		handleAppendMsg(&msg, entries, numEntries, &replyMsg);
+		intType = 1;
 	} else if(type == VOTE) {
-		handleVoteMsg(&msg);
-		return 0;
+		handleVoteMsg(&msg, &replyMsg);
 	} else {
 		printf("Error: unknown rpc type on msg rec\n");
 		return -1;
 	}
+
+	/* reply */
+	if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
+		printf("Error: failed send on rpc reply\n");
+		perror("send");
+		close(s);
+		FD_CLR(s, master);
+		return -1;
+	}
+
+	return intType;
 }
 
 /* get in addr from sock addr */
