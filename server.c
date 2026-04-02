@@ -29,7 +29,7 @@ int *votedFor = NULL;
 /* log entries, command for state machine and term when entry received by leader */
 LogEntry *logEntries; /* first index is 1 */
 int logEntriesSize = 10; /* size of logEntries, increases when runs out of space */
-int logEntryIndex = 1; /* index of last log in logEntries */
+int logEntryIndex = 0; /* index of last log in logEntries, zero indicate no logs, first index at 1 */
 /* doubly linked list of state machine entries, each are a key value pair */
 List *stateMachine;
 
@@ -49,6 +49,18 @@ int matchIndex[NUM_SERVERS]; /* init to 0 */
 
 /* OTHER INFO */
 ServerInfo servers[NUM_SERVERS - 1];
+
+/* Double log entry space */
+void increaseLogEntries() {
+	logEntriesSize *= 2; /* double size */
+	LogEntry *newPtr = (LogEntry *)reallocarray(logEntries, logEntriesSize, sizeof(LogEntry));
+	if(newPtr == NULL) {
+		printf("Error: unable to realloc array for log entries\n");
+		perror("realloc");
+		exit(1);
+	}
+	logEntries = newPtr;
+}
 
 /* Apply oldest non-committed log based on lastApplied */
 void applyOldestLog() {
@@ -121,7 +133,8 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 		int logIndex = i + prevLogIndex;
 		/* check if index out of bounds */
 		if(logIndex >= logEntriesSize) {
-			/* TODO: increase log entry size here */
+			/* past bounds, increase size to prepare for new entries */
+			increaseLogEntries();
 			break;
 		}
 		/* check if past last log */
@@ -141,8 +154,10 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 	/* 4. append any new entries not in log */
 	int numNewLogs = numEntries - lastNonConflictIndex;
 	if(logEntryIndex + numNewLogs >= logEntriesSize) {
-		/* TODO: increase log entry size here */
+		/* new logs will exceed log entry space, increase here before continuing */
+		increaseLogEntries();
 	}
+	/* if there are new entries from rpc to add, add them */
 	if(lastNonConflictIndex != numEntries) {
 		memcpy(&logEntries[logEntryIndex], &entries[lastNonConflictIndex], sizeof(LogEntry) * numNewLogs);
 	}
@@ -573,10 +588,15 @@ int main(int argc, char *argv[]) {
 		printf("id: %d, portNum: %d, sockfd: %d, hostname: %s\n", servers[i].id, servers[i].portNum, servers[i].sockfd, servers[i].hostname);
 	}
 
+	/* init timers */
 	electionTimerVal = (rand() % 151 + 150) * 1000; /* between 150-300 ms */
 	printf("server will use election timeout of %dms", electionTimerVal);
 	electionTimer.tv_sec = 0;
 	electionTimer.tv_usec = electionTimerVal;
+
+	/* init lists */
+	logEntries = (LogEntry *)malloc(sizeof(LogEntry) * logEntriesSize);
+	stateMachine = ListCreate();
 
 	for (;;) {
 		/* for all server states: */
@@ -601,6 +621,7 @@ int main(int argc, char *argv[]) {
 				} else if(check == 0) {
 					/* timer ran out, no more fds, so no leader heartbeat was rec */
 					serverStateType = CANDIDATE;
+					break;
 				} else {
 					for(i = 0; i <= fdmax; i++) {
 						if(FD_ISSET(i, &read_fds)) {
@@ -634,8 +655,8 @@ int main(int argc, char *argv[]) {
 				electionTimer.tv_usec = electionTimerVal;
 
 				/* Create threads */
-			  pthread_t threads[NUM_SERVERS-1];
-			  RequestVoteArgs *threadArgs[NUM_SERVERS-1];
+				pthread_t threads[NUM_SERVERS-1];
+				RequestVoteArgs *threadArgs[NUM_SERVERS-1];
 
 				/* TODO: Send RequestVote RPC to other servers concurrently */
 				for (int i = 0; i < (NUM_SERVERS-1); i++){
