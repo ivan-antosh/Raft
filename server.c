@@ -127,8 +127,13 @@ LogEntry *getMsgEntries(int s, size_t totalBytesToRec) {
 	return (LogEntry *)buffer;
 }
 
-/* Receive, handle, respond to incoming message */
-void respondToRPC(int s, fd_set *master) {
+/* Receive, handle, respond to incoming message
+ * Input:
+ * 	s: sockfd to rec from
+ *  master: master set of sockfds
+ * Return: 1 if rec Append type, 0 if rec non-Append type, -1 on error
+ */
+int respondToRPC(int s, fd_set *master) {
 	RPCMsg msg;
 	int check;
 
@@ -139,7 +144,7 @@ void respondToRPC(int s, fd_set *master) {
 		perror("recv");
 		close(s);
 		FD_CLR(s, master);
-		return;
+		return -1;
 	}
 
 	/* if frame indicates entries to rec, rec them */
@@ -152,7 +157,7 @@ void respondToRPC(int s, fd_set *master) {
 			printf("Error: expected to rec log entries, but did not rec\n");
 			close(s);
 			FD_CLR(s, master);
-			return;
+			return -1;
 		}
 	}
 	/* TODO: remove, just for checking */
@@ -168,11 +173,13 @@ void respondToRPC(int s, fd_set *master) {
 	RPCType type = ntohs(msg.rpcType);
 	if(type == APPEND) {
 		handleAppendMsg(&msg, entries, numEntries);
+		return 1;
 	} else if(type == VOTE) {
 		handleVoteMsg(&msg);
+		return 0;
 	} else {
 		printf("Error: unknown rpc type on msg rec\n");
-		return;
+		return -1;
 	}
 }
 
@@ -345,6 +352,9 @@ int main(int argc, char *argv[]) {
 	int fdmax;
 	int listener;
 	struct timeval tv;
+	
+	struct timeval electionTimer;
+	int electionTimerVal;
 
 	int portNum, id;
 	int i, check;
@@ -467,6 +477,11 @@ int main(int argc, char *argv[]) {
 		printf("id: %d, portNum: %d, sockfd: %d, hostname: %s\n", servers[i].id, servers[i].portNum, servers[i].sockfd, servers[i].hostname);
 	}
 
+	electionTimerVal = (rand() % 151 + 150) * 1000; /* between 150-300 ms */
+	printf("server will use election timeout of %dms", electionTimerVal);
+	electionTimer.tv_sec = 0;
+	electionTimer.tv_usec = electionTimerVal;
+
 	for (;;) {
 		/* for all server states: */
 		/* if commit index is larger than last applied, increase last applied and commit new log */
@@ -478,32 +493,38 @@ int main(int argc, char *argv[]) {
 		switch (serverStateType) {
 			case FOLLOWER:
 				/* TODO: Implment Follower Case */
+				printf("Server is in the follower state\n");
 
 				/* TODO: Respond to RPC from candidates and leaders */
+				int resetTimer = 0;
 				read_fds = master;
-				tv.tv_sec = 0;
-				tv.tv_usec = 0;
-				check = select(fdmax + 1, &read_fds, NULL, NULL, &tv);
+				check = select(fdmax + 1, &read_fds, NULL, NULL, &electionTimer);
 				if(check == -1) {
 					perror("select: read on follower");
 					exit(4);
-				}
-				for(i = 0; i <= fdmax; i++) {
-					if(FD_ISSET(i, &read_fds)) {
-						if(i == listener) {
-							handle_new_connection(i, &master, &fdmax);
-						} else {
-							respondToRPC(i, &master);
+				} else if(check == 0) {
+					/* timer ran out, no more fds, so no leader heartbeat was rec */
+					serverStateType = CANDIDATE;
+				} else {
+					for(i = 0; i <= fdmax; i++) {
+						if(FD_ISSET(i, &read_fds)) {
+							if(i == listener) {
+								handle_new_connection(i, &master, &fdmax);
+							} else {
+								check = respondToRPC(i, &master);
+								if(check == 1) {
+									resetTimer = 1;
+								}
+							}
 						}
 					}
 				}
-
-				/* TODO: check timeout and convert to Candidate */
-				if (id == 1){
-					serverStateType = CANDIDATE;
+				/* if got an appendEntries call, reset timer */
+				if(resetTimer) {
+					electionTimer.tv_sec = 0;
+					electionTimer.tv_usec = electionTimerVal;
 				}
 
-				printf("Server is in the follower state\n");
 				break;
 			case CANDIDATE:
 				/* TODO: Implement Candidate Case */
@@ -512,7 +533,9 @@ int main(int argc, char *argv[]) {
 				currentTerm += 1;
 				votedFor = &id;
 				int votesReceived = 1;
-				struct timeval electionTimer = {0, 0};
+				/* reset election timer */
+				electionTimer.tv_sec = 0;
+				electionTimer.tv_usec = electionTimerVal;
 
 				/* Create threads */
 			  pthread_t threads[NUM_SERVERS-1];
