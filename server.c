@@ -658,7 +658,7 @@ int main(int argc, char *argv[]) {
 				pthread_t threads[NUM_SERVERS-1];
 				RequestVoteArgs *threadArgs[NUM_SERVERS-1];
 
-				/* TODO: Send RequestVote RPC to other servers concurrently */
+				/* Send conccurent RequestVote request to all servers */
 				for (int i = 0; i < (NUM_SERVERS-1); i++){
 					if (servers[i].sockfd == -1){
 						continue;
@@ -682,22 +682,30 @@ int main(int argc, char *argv[]) {
 					}
 				}
 
-				/* loop till either majority votes received, AppendEntries RPC received or election timeout */
+				/* Candidate loops until either:
+				 * a) Candidate receives the majority of the votes
+				 * b) Another server establises itself as a leader. (AKA. receives a AppendEntries call)
+				 * c) Election timeout
+				 */
 				for (;;){
+					/* TODO: Update to non-blocking operation */
 					/* check if any threads finished */
 					for (i = 0; i < NUM_SERVERS-1; i++) {
-						RequestResult *result;
-						pthread_join(threads[i], (void *)result);
+						RPCReplyMsg *result;
+						pthread_join(threads[i], (void *)&result);
 
-						if (result->voteGranted) {
+						if (result->result) {
 							votesReceived += 1;
 						}
-					}
 
-					printf("All Msg received\n");
+						/* Release thread argument memory */
+						free(threadArgs[i]);
+						free(result);
+					}
 
 					/* Check for majority vote */
 					if (votesReceived > NUM_SERVERS/2) {
+						killThreads(threads, NUM_SERVERS-1);
 						serverStateType = LEADER;
 						break;
 					}
