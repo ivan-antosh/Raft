@@ -17,7 +17,7 @@ void *RequestVoteThread(void *ptr) {
 
 /* RPC Call */
 RPCReplyMsg *RequestVote(int sockfd, uint16_t rpcType, uint32_t term, uint32_t id, uint32_t logIndex, uint32_t logTerm) {
-	RPCMsg msg = {htons(rpcType), htonl(term), htonl(id), htonl(logIndex), htonl(logTerm)};
+	RPCMsg msg = {htons(rpcType), htonl(term), htonl(id), htonl(logIndex), htonl(logTerm), htonl(0), htonl(0)};
 	RPCReplyMsg *reply = malloc(sizeof(RPCReplyMsg));
 
 	if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
