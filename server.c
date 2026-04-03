@@ -691,16 +691,16 @@ int main(int argc, char *argv[]) {
 					/* TODO: Update to non-blocking operation */
 					/* check if any threads finished */
 					for (i = 0; i < NUM_SERVERS-1; i++) {
-						RPCReplyMsg *result;
+						RPCReplyMsg *result = NULL;
 						pthread_join(threads[i], (void *)&result);
 
-						if (result->result) {
+						if (result != NULL && result->result) {
 							votesReceived += 1;
+							free(result);
 						}
 
 						/* Release thread argument memory */
 						free(threadArgs[i]);
-						free(result);
 					}
 
 					/* Check for majority vote */
