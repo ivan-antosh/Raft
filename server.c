@@ -19,6 +19,13 @@
 #include <helper.h>
 #include "list_lib/list.h"
 
+#define STDIN 0
+
+typedef struct {
+	int followerId;
+	int leaderId;
+} AppendEntryThreadArgs;
+
 /* STATE INFO */
 
 /* persistent on all servers */
@@ -294,6 +301,37 @@ int respondToRPC(int s, fd_set *master) {
 	return intType;
 }
 
+/* Thread to handle append entry rpc calls */
+void *AppendEntryThread(void *args) {
+	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
+	int followerId = threadArgs->followerId;
+	int leaderId = threadArgs->leaderId;
+
+	int followerNextIndex = nextIndex[followerId];
+	if(logEntryIndex < followerNextIndex) {
+		return NULL;
+	}
+
+	AppendResult result;
+	result.success = 0;
+	/* keep trying AppendEntries */
+	while(!result.success) {
+		int numEntriesToSend = logEntryIndex - followerNextIndex + 1;
+		result = AppendEntries(currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
+			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);	
+		followerNextIndex -= 1;
+		/* If a higher term is found from the follower, then this server is no longer leader */
+		/* end thread, and also other threads will have the same FOLLOWER check and end */
+		checkTerm(result.term);
+		if(serverStateType == FOLLOWER) {
+			return NULL;
+		}
+	}
+	nextIndex[followerId] = logEntryIndex + 1;
+	matchIndex[followerId] = logEntryIndex;
+	return NULL;
+}
+
 /* get in addr from sock addr */
 void *get_in_addr(struct sockaddr *sa) {
 	if(sa->sa_family == AF_INET) {
@@ -459,7 +497,7 @@ int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax) {
 }
 
 int main(int argc, char *argv[]) {
-	fd_set master, read_fds, write_fds;
+	fd_set master, stdin_fd, read_fds, write_fds;
 	int fdmax;
 	int listener;
 	struct timeval tv;
@@ -523,14 +561,17 @@ int main(int argc, char *argv[]) {
 		printf("id: %d, portNum: %d, sockfd: %d, hostname: %s\n", servers[i].id, servers[i].portNum, servers[i].sockfd, servers[i].hostname);
 	}
 
-	/* clear master and temps */
+	/* clear master, stdin, and temps */
     FD_ZERO(&master); 
+	FD_ZERO(&stdin_fd);
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);
     /* add listener to master */
     listener = get_listener_socket(argv[2]);
     FD_SET(listener, &master);
     fdmax = listener; /* set fdmax */
+	/* set stdin */
+	FD_SET(STDIN, &stdin_fd);
 
 	/* Connect to all servers before continuing */
 	int neededConnections = NUM_SERVERS - 1;
@@ -718,8 +759,109 @@ int main(int argc, char *argv[]) {
 				break;
 			case LEADER:
 				/* TODO: Implement Leader case */
-
 				printf("Server is in the leader state\n");
+
+				/* TODO: implement heartbeat */
+
+				/* read client */
+				/* TODO: implement actual client, just stdin for now */
+				read_fds = stdin_fd;
+				tv.tv_sec = 0;
+				tv.tv_usec = 0;
+				check = select(STDIN + 1, &read_fds, NULL, NULL, &electionTimer);
+				if(check == -1) {
+					perror("select: stdin read for leader");
+					exit(4);
+				} else if(check) {
+					printf("Got user input\n"); /* TODO: remove */
+					char *userLine = NULL;
+					size_t userLen = 0;
+					int numRead;
+
+					if((numRead = getline(&userLine, &userLen, stdin)) == -1) {
+						perror("getline failed");
+					} else {
+						logEntryIndex += 1;
+						if(logEntryIndex >= logEntriesSize) {
+							increaseLogEntries();
+						}
+						/* convert input to command, add to local log */
+						/* TODO: error checking, also prolly regex */
+						LogEntry *entry = &logEntries[logEntryIndex];
+						entry->term = currentTerm;
+						char *token = strtok(userLine, " ");
+						if(strcmp(token, "put") == 0) {
+							entry->cmd.type = PUT;
+							token = strtok(NULL, " ");
+							strcpy(entry->cmd.x, token);
+							token = strtok(NULL, " ");
+							int y = atoi(token);
+							entry->cmd.y = y;
+						} else if(strcmp(token, "get") == 0) {
+							entry->cmd.type = GET;
+							token = strtok(NULL, " ");
+							strcpy(entry->cmd.x, token);
+							entry->cmd.y = 0;
+						} else if(strcmp(token, "del") == 0) {
+							entry->cmd.type = DEL;
+							token = strtok(NULL, " ");
+							strcpy(entry->cmd.x, token);
+							entry->cmd.y = 0;
+						} else {
+							printf("Error: unknown command from user input\n");
+						}
+					}
+				}
+
+				/* send + handle append entries rpc calls in parallel to each other server */
+				pthread_t appendEntriesThreads[NUM_SERVERS-1];
+				AppendEntryThreadArgs *appendEntriesThreadArgs =
+					(AppendEntryThreadArgs *)malloc(sizeof(AppendEntryThreadArgs) * (NUM_SERVERS - 1));
+				if (appendEntriesThreadArgs == NULL) {
+					perror("Allocate memory for append entries thread args (leader)");
+					break;
+				}
+				for(int i = 0; i < (NUM_SERVERS-1); i++) {
+					appendEntriesThreadArgs[i].followerId = servers[i].id;
+					appendEntriesThreadArgs[i].leaderId = id;
+					/* create thread */
+					if (pthread_create(&appendEntriesThreads[i], NULL, AppendEntryThread, &appendEntriesThreadArgs[i]) != 0) {
+						perror("Create thread");
+					}
+				}
+				/* wait until all threads finished */
+				for (i = 0; i < NUM_SERVERS-1; i++) {
+					pthread_join(appendEntriesThreads[i], NULL);
+				}
+				/* Release thread argument memory */
+				free(appendEntriesThreadArgs);
+				/* thread may have converted server to follower, if so don't continue */
+				if(serverStateType == FOLLOWER) {
+					break;
+				}
+
+				/* update commit index once all appendentries done */
+				int n = commitIndex;
+				/* find n that n > commitIndex, majority of matchIndex[i]>=n, log[n].term == currentTerm */
+				/* then set commitIndex to that n */
+				for(;;) {
+					n += 1;
+					int checkServers = 0;
+					for(int i = 0; i < (NUM_SERVERS-1); i++) {
+						if(matchIndex[i] >= n) {
+							checkServers += 1;
+						}
+					}
+					if(checkServers < (int)(NUM_SERVERS / 2)) {
+						break;
+					}
+					if(n > logEntryIndex || logEntries[n].term != currentTerm) {
+						break;
+					}
+				}
+				n -= 1; /* sub 1 since loop adds 1 then breaks if doesn't satisfy constraints */
+				commitIndex = n; /* if no such n, then will stay the same */
+
 				break;
 			default:
 				perror("Invalid server state");
