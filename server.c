@@ -691,7 +691,7 @@ int main(int argc, char *argv[]) {
 
 	/* init timers */
 	electionTimerVal = (rand() % 151 + 150) * 1000; /* between 150-300 ms */
-	printf("server will use election timeout of %dms\n", electionTimerVal);
+	printf("server will use election timeout of %dms\n", electionTimerVal/1000);
 	electionTimer.tv_sec = 0;
 	electionTimer.tv_usec = electionTimerVal;
 
@@ -746,6 +746,7 @@ int main(int argc, char *argv[]) {
 				break;
 			case CANDIDATE:
 				/* TODO: Implement Candidate Case */
+				printf("Server has entered CANDIDATE state\n");
 
 				/* start election */
 				currentTerm += 1;
