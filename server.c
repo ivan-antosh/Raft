@@ -139,9 +139,12 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 	int prevLogTerm = ntohl(msg->logTerm);
 	int leaderCommit = ntohl(msg->leaderCommit);
 
+	/* update term */
+	checkTerm(term);
+
 	/* 1. reply false if term < currentTerm */
 	/* 2. reply false if log doesnt have entry at prevLogIndex with same term */
-	if(term < currentTerm || prevLogIndex > logEntryIndex || logEntries[prevLogIndex].term != prevLogTerm) {
+	if(term < currentTerm || prevLogIndex > logEntryIndex || (prevLogIndex > 0 && logEntries[prevLogIndex].term != prevLogTerm)) {
 		/* reply */
 		replyMsg->result = htonl(0);
 		return;
@@ -191,9 +194,6 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 		}
 	}
 
-	/* then update term */
-	checkTerm(term);
-
 	return;
 }
 
@@ -204,20 +204,25 @@ void handleVoteMsg(RPCMsg *msg, RPCReplyMsg *replyMsg) {
 	int lastLogIndex = ntohl(msg->logIndex);
 	int lastLogTerm = ntohl(msg->logTerm);
 
+	int myLastLogTerm = 0;
+	if(logEntryIndex > 0) {
+		myLastLogTerm = logEntries[logEntryIndex].term;
+	}
+
+	/* update term */
+	checkTerm(term);
+
 	if(term < currentTerm) {
 		/* 1. dont grant vote if term is less */
 		replyMsg->result = htonl(0);
 	} else if((votedFor == NULL || *votedFor == candidateId) &&
-		((lastLogTerm > currentTerm) || (lastLogTerm == currentTerm && lastLogIndex >= logEntryIndex))) {
+		((lastLogTerm > myLastLogTerm) || (lastLogTerm == myLastLogTerm && lastLogIndex >= logEntryIndex))) {
 		/* 2. grant vote if votedFor is null or candidateId, and candidate log is atleast as up-to-date as log */
 		replyMsg->result = htonl(1);
 	} else {
 		/* otherwise, dont grant vote */
 		replyMsg->result = htonl(0);
 	}
-
-	/* then update term */
-	checkTerm(term);
 
 	return;
 }
@@ -267,7 +272,6 @@ int respondToRPC(int s, fd_set *master) {
 	/* based on rpc type, handle msg differently */
 	RPCType type = ntohs(msg.rpcType);
 	RPCReplyMsg replyMsg;
-	replyMsg.term = htonl(currentTerm);
 	int intType = 0;
 	if(type == APPEND) {
 		handleAppendMsg(&msg, entries, numEntries, &replyMsg);
@@ -279,6 +283,7 @@ int respondToRPC(int s, fd_set *master) {
 		free(entries);
 		return -1;
 	}
+	replyMsg.term = htonl(currentTerm);
 	free(entries);
 
 	/* reply */
@@ -339,7 +344,6 @@ RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
 
 	/* based on rpc type, handle msg differently */
 	RPCType type = ntohs(msg.rpcType);
-	replyMsg.term = htonl(currentTerm);
 	if(type == APPEND) {
 		replyMsg.rpcType = type;
 		handleAppendMsg(&msg, entries, numEntries, &replyMsg);
@@ -349,7 +353,9 @@ RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
 	} else {
 		printf("Error: unknown rpc type on msg rec\n");
 	}
+	replyMsg.term = htonl(currentTerm);
 
+	free(entries);
 	return replyMsg;
 }
 
@@ -371,8 +377,9 @@ void *AppendEntryThread(void *args) {
 
 	int followerNextIndex = nextIndex[followerId - 1];
 	if(logEntryIndex < followerNextIndex) {
+		int prevLogTerm = (followerNextIndex > 1) ? logEntries[followerNextIndex - 1].term : 0;
 		/* Send heartbeat if no log entries to send (default values, w/ commitIndex) */
-		if(AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
+		if(AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, prevLogTerm,
 			NULL, 0, commitIndex) == NULL) {
 			printf("Error: sending heartbeat in append entry thread for server %d\n", followerId);
 		}
@@ -389,7 +396,8 @@ void *AppendEntryThread(void *args) {
 		pthread_mutex_unlock(&termLock);
 
 		int numEntriesToSend = logEntryIndex - followerNextIndex + 1;
-		result = AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
+		int prevLogTerm = (followerNextIndex > 1) ? logEntries[followerNextIndex - 1].term : 0;
+		result = AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, prevLogTerm,
 			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);	
 		if(result == NULL) {
 			printf("Error: Append entries for append entries thread returned NULL for server %d\n", followerId);
@@ -405,6 +413,7 @@ void *AppendEntryThread(void *args) {
 		/* end thread, and also other threads will have the same FOLLOWER check and end */
 		checkTerm(result->term);
 		if(serverStateType == FOLLOWER) {
+			free(result);
 			return NULL;
 		}
 		success = result->success;
@@ -809,6 +818,7 @@ int main(int argc, char *argv[]) {
 					if (pthread_create(&threads[i], NULL, RequestVoteThread, threadArgs[i]) != 0) {
 						perror("Create thread");
 						free(threadArgs[i]);
+						threadArgs[i] = NULL;
 					}
 				}
 
@@ -825,6 +835,7 @@ int main(int argc, char *argv[]) {
 						exit(4);
 					} else if(check == 0) {
 						/* Event C: Election timeout elapsed, will restart CANDIDATE loop to start new election */
+						killThreads(threads, threadArgs, NUM_SERVERS-1);
 						break;
 					} else {
 						for(i = 0; i <= fdmax; i++) {
@@ -835,6 +846,7 @@ int main(int argc, char *argv[]) {
 									RPCReplyMsg rec = receiveCandidateRPC(i, &master);
 									if(serverStateType == FOLLOWER) {
 										/* Event B: Another server had a higher term, end CANDIDATE loop */
+										killThreads(threads, threadArgs, NUM_SERVERS-1);
 										goto done_reading;
 									} else if (rec.rpcType == VOTE) {
 										if (rec.result == 1) {
@@ -843,7 +855,7 @@ int main(int argc, char *argv[]) {
 										/* Check for majority vote */
 										if (votesReceived > (int)(NUM_SERVERS / 2)) {
 											/* Event A: Candidate received the majority of the votes, become LEADER and end CANDIDATE loop */
-											killThreads(threads, NUM_SERVERS-1);
+											killThreads(threads, threadArgs, NUM_SERVERS-1);
 											printf("Converting server to LEADER\n");
 											serverStateType = LEADER;
 											handleNewLeader();
@@ -945,7 +957,7 @@ int main(int argc, char *argv[]) {
 				for(;;) {
 					n += 1;
 					int checkServers = 0;
-					for(int i = 0; i < (NUM_SERVERS-1); i++) {
+					for(int i = 1; i <= NUM_SERVERS; i++) {
 						/* dont check own matchIndex */
 						if(i == id) {
 							continue;
