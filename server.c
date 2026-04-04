@@ -705,6 +705,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* init timers */
+	srand(time(NULL) ^ id);
 	electionTimerVal = (rand() % 151 + 150) * 1000; /* between 150-300 ms */
 	printf("server will use election timeout of %dms\n", electionTimerVal/1000);
 	electionTimer.tv_sec = 0;
