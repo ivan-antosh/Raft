@@ -348,6 +348,10 @@ void *AppendEntryThread(void *args) {
 
 	int followerNextIndex = nextIndex[followerId];
 	if(logEntryIndex < followerNextIndex) {
+		/* Send heartbeat if no log entries to send (default values, w/ commitIndex) */
+		if(AppendEntries(sockfd, currentTerm, leaderId, 0, 0, NULL, 0, commitIndex) == NULL) {
+			printf("Error: sending heartbeat in append entry thread for server %d\n", followerId);
+		}
 		return NULL;
 	}
 
@@ -359,7 +363,7 @@ void *AppendEntryThread(void *args) {
 		result = AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
 			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);	
 		if(result == NULL) {
-			printf("Error: Append entries for append entries thread returned NULL\n");
+			printf("Error: Append entries for append entries thread returned NULL for server %d\n", followerId);
 			return NULL;
 		}
 
@@ -372,7 +376,7 @@ void *AppendEntryThread(void *args) {
 		}
 		success = result->success;
 	}
-	
+
 	free(result);
 	nextIndex[followerId] = logEntryIndex + 1;
 	matchIndex[followerId] = logEntryIndex;

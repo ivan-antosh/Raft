@@ -31,10 +31,12 @@ AppendResult *AppendEntries(int sockfd, int term, int leaderId, int prevLogIndex
 		perror("send");
 		return NULL;
 	}
-	int totalBytesToSend = numEntries * sizeof(LogEntry);
-	check = sendMsgEntries(sockfd, entries, totalBytesToSend);
-	if(check == -1) {
-		return NULL;
+	if(numEntries > 0) {
+		int totalBytesToSend = numEntries * sizeof(LogEntry);
+		check = sendMsgEntries(sockfd, entries, totalBytesToSend);
+		if(check == -1) {
+			return NULL;
+		}
 	}
 
 	/* rec RPC reply message */
