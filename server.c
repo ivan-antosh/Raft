@@ -301,6 +301,66 @@ int respondToRPC(int s, fd_set *master) {
 	return intType;
 }
 
+/* Receive and handle any incoming message while in candidate state
+ * Input:
+ * 	s: sockfd to rec from
+ *  master: master set of sockfds
+ * Return: 1 if rec Append type, 0 if rec non-Append type, -1 on error
+ */
+RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
+	RPCMsg msg;
+	RPCReplyMsg replyMsg;
+	replyMsg.rpcType = -1;
+	int check;
+
+	/* receive msg frame */
+	check = recv(s, &msg, sizeof(msg), 0);
+	if (check != sizeof(msg)) {
+		printf("Error: did not rec full msg\n");
+		perror("recv");
+		close(s);
+		FD_CLR(s, master);
+		return replyMsg;
+	}
+
+	/* if frame indicates entries to rec, rec them */
+	LogEntry *entries = NULL;
+	int numEntries = ntohl(msg.entriesLen);
+	if(numEntries > 0) {
+		size_t totalBytesToRec = numEntries * sizeof(LogEntry);
+		entries = getMsgEntries(s, totalBytesToRec);
+		if(!entries) {
+			printf("Error: expected to rec log entries, but did not rec\n");
+			close(s);
+			FD_CLR(s, master);
+			return replyMsg;
+		}
+	}
+	/* TODO: remove, just for checking */
+	if(entries == NULL) {
+		printf("Entries: NULL");
+	} else {
+		for(int i = 0; i < numEntries; i++) {
+			printf("Entry %d: x: %s, y: %d", i, entries[i].cmd.x, entries[i].cmd.y);
+		}
+	}
+
+	/* based on rpc type, handle msg differently */
+	RPCType type = ntohs(msg.rpcType);
+	replyMsg.term = htonl(currentTerm);
+	if(type == APPEND) {
+		replyMsg.rpcType = type;
+		handleAppendMsg(&msg, entries, numEntries, &replyMsg);
+	} else if(type == VOTE) {
+		replyMsg.rpcType = type;
+		handleVoteMsg(&msg, &replyMsg);
+	} else {
+		printf("Error: unknown rpc type on msg rec\n");
+	}
+
+	return replyMsg;
+}
+
 /* Thread to handle append entry rpc calls */
 void *AppendEntryThread(void *args) {
 	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
@@ -714,12 +774,16 @@ int main(int argc, char *argv[]) {
 					threadArgs[i]->msg.rpcType = VOTE;
 					threadArgs[i]->msg.term = currentTerm;
 					threadArgs[i]->msg.id = id;
-					threadArgs[i]->msg.logIndex = lastApplied;
-					/* TODO: Update logTerm */
-					threadArgs[i]->msg.logTerm = 0;
+					threadArgs[i]->msg.logIndex = logEntryIndex;
+					if (logEntryIndex > 0) {
+						threadArgs[i]->msg.logTerm = logEntries[logEntryIndex].term;
+					} else {
+						threadArgs[i]->msg.logTerm = 0;
+					}
 
 					if (pthread_create(&threads[i], NULL, RequestVoteThread, threadArgs[i]) != 0) {
 						perror("Create thread");
+						free(threadArgs[i]);
 					}
 				}
 
@@ -729,33 +793,44 @@ int main(int argc, char *argv[]) {
 				 * c) Election timeout
 				 */
 				for (;;){
-					/* TODO: Update to non-blocking operation */
-					/* check if any threads finished */
-					for (i = 0; i < NUM_SERVERS-1; i++) {
-						RPCReplyMsg *result = NULL;
-						pthread_join(threads[i], (void *)&result);
-
-						if (result != NULL && result->result) {
-							votesReceived += 1;
-							free(result);
-						}
-
-						/* Release thread argument memory */
-						free(threadArgs[i]);
-					}
-
-					/* Check for majority vote */
-					if (votesReceived > NUM_SERVERS/2) {
-						killThreads(threads, NUM_SERVERS-1);
-						serverStateType = LEADER;
+					read_fds = master;
+					check = select(fdmax + 1, &read_fds, NULL, NULL, &electionTimer);
+					if(check == -1) {
+						perror("select: read on candidate");
+						exit(4);
+					} else if(check == 0) {
+						/* Event C: Electiopn timeout elapsed */
 						break;
+					} else {
+						for(i = 0; i <= fdmax; i++) {
+							if(FD_ISSET(i, &read_fds)) {
+								if(i == listener) {
+									handle_new_connection(i, &master, &fdmax);
+								} else {
+									RPCReplyMsg rec = receiveCandidateRPC(i, &master);
+									if(rec.rpcType == APPEND) {
+										/* Event B: Anoter server send a Append Entries call establising itself as the leader */
+										serverStateType = FOLLOWER;
+										break;
+									} else if (rec.rpcType == VOTE) {
+										if (rec.result == 1) {
+											votesReceived += 1;
+										}
+										/* Check for majority vote */
+										if (votesReceived > NUM_SERVERS/2) {
+											/* Event A: Candidate reveived the majority of the votes */
+											killThreads(threads, NUM_SERVERS-1);
+											serverStateType = LEADER;
+											break;
+										}
+									} else {
+										perror("receiveCandidateRPC: handle rpc call");
+									}
+								}
+							}
+						}
 					}
-
-					/* TODO: check for AppendEntries RPC */
-
-					/* TODO: if election timeout elapses, start new election */
 				}
-
 				break;
 			case LEADER:
 				/* TODO: Implement Leader case */

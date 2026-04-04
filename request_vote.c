@@ -10,15 +10,14 @@
 void *RequestVoteThread(void *ptr) {
 	RequestVoteArgs *args = (RequestVoteArgs *) ptr;
 
-	RPCReplyMsg *result = RequestVote(args->sockfd, args->msg.rpcType, args->msg.term, args->msg.id, args->msg.logIndex, args->msg.logTerm);
+	RequestVote(args->sockfd, args->msg.rpcType, args->msg.term, args->msg.id, args->msg.logIndex, args->msg.logTerm);
 
-	pthread_exit(result);
+	return NULL;
 }
 
-/* RPC Call */
-RPCReplyMsg *RequestVote(int sockfd, uint16_t rpcType, uint32_t term, uint32_t id, uint32_t logIndex, uint32_t logTerm) {
+/* RPC Call - used to request leadership vote from other servers */
+void RequestVote(int sockfd, uint16_t rpcType, uint32_t term, uint32_t id, uint32_t logIndex, uint32_t logTerm) {
 	RPCMsg msg = {htons(rpcType), htonl(term), htonl(id), htonl(logIndex), htonl(logTerm), htonl(0), htonl(0)};
-	RPCReplyMsg *reply = malloc(sizeof(RPCReplyMsg));
 
 	if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
 		perror("RequestVote - send");
@@ -26,14 +25,4 @@ RPCReplyMsg *RequestVote(int sockfd, uint16_t rpcType, uint32_t term, uint32_t i
 	}
 
 	printf("RequestVote send to fd %d\n", sockfd);
-
-	if((recv(sockfd, reply, sizeof(RPCReplyMsg), 0)) == -1) {
-		perror("RequestResult - recv");
-		exit(2);
-	}
-
-	reply->term = htonl(reply->term);
-	reply->result = htonl(reply->result);
-
-	return reply;
 }

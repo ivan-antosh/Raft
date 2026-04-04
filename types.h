@@ -78,6 +78,7 @@ typedef struct {
 
 /* RPC reply message as a reply, for both AppendEntries and RequestVote */
 typedef struct {
+	uint16_t rpcType; /* Append / Vote -> converted RPCType */
 	uint32_t term; /* term to update leader/candidate */
 	uint32_t result; /* success (if follower contained entry matching prevLogIndex and prevLogTerm) /
 					    voteGranted (candidate received vote) */
