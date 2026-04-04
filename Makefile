@@ -7,13 +7,19 @@ LIBLIST_DIR=./list_lib
 
 .PHONY: all clean
 
-all: server
+all: server proxy
 
 # server
 server: server.o libappendentries.a librequestvote.a libhelper.a $(LIBLIST_DIR)/liblist.a
 	$(CC) -o server server.o $(CFLAGS) -L. -lappendentries -lrequestvote -lhelper -L$(LIBLIST_DIR) -llist
 server.o: server.c types.h
 	$(CC) -o server.o -c $(CFLAGS) $(CPPFLAGS) server.c -I. -I$(LIBLIST_DIR)
+
+# proxy
+proxy: proxy.o
+	$(CC) -o proxy proxy.o $(CFLAGS)
+proxy.o: proxy.c types.h
+	$(CC) -o proxy.o -c $(CFLAGS) $(CPPFLAGS) proxy.c -I. -I$(LIBLIST_DIR)
 
 # appendentries
 libappendentries.a: append_entries.o
