@@ -128,7 +128,7 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 
 	/* 1. reply false if term < currentTerm */
 	/* 2. reply false if log doesnt have entry at prevLogIndex with same term */
-	if(term < currentTerm || (prevLogIndex <= logEntryIndex && logEntries[prevLogIndex].term != prevLogTerm)) {
+	if(term < currentTerm || prevLogIndex > logEntryIndex || logEntries[prevLogIndex].term != prevLogTerm) {
 		/* reply */
 		replyMsg->result = htonl(0);
 		return;
@@ -136,40 +136,39 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 	replyMsg->result = htonl(1);
 
 	/* 3. remove logs at and after a conflicting log */
-	int lastNonConflictIndex = 0;
-	for(int i = 1; i <= numEntries; i++) {
-		int logIndex = i + prevLogIndex;
-		/* check if index out of bounds */
-		if(logIndex >= logEntriesSize) {
-			/* past bounds, increase size to prepare for new entries */
-			increaseLogEntries();
+	int numNonConflicting = 0; /* how many entries not conflicting */
+	for(int i = 0; i < numEntries; i++) {
+		int curLogIndex = i + prevLogIndex + 1; /* servers logs start at index 1, and checking past prevLogIndex */
+		/* if past last log, no more checking needed */
+		if(curLogIndex > logEntryIndex) {
 			break;
 		}
-		/* check if past last log */
-		if(logEntryIndex < logIndex) {
+		/* if log entry term does not match new log entry term, remove logs, then stop loop */
+		if(logEntries[curLogIndex].term != entries[i].term) {
+			memset(&logEntries[curLogIndex], 0, sizeof(LogEntry) * (logEntryIndex - curLogIndex + 1));
+			logEntryIndex = curLogIndex - 1;
 			break;
 		}
-		LogEntry entry = logEntries[logIndex];
-		/* if log entry term does not match new log entry term, remove logs */
-		if(entry.term != entries[i].term) {
-			memset(&logEntries[logIndex], 0, sizeof(LogEntry) * (logEntryIndex - (logIndex) + 1));
-			logEntryIndex = logIndex - 1;
-			break;
-		}
-		/* no conflict, continue loop and indicate last non conflicting index */
-		lastNonConflictIndex += 1;
+		numNonConflicting += 1;
 	}
+
 	/* 4. append any new entries not in log */
-	int numNewLogs = numEntries - lastNonConflictIndex;
-	if(logEntryIndex + numNewLogs >= logEntriesSize) {
-		/* new logs will exceed log entry space, increase here before continuing */
-		increaseLogEntries();
+	int numNewLogs = numEntries - numNonConflicting;
+	for(;;) {
+		if(logEntryIndex + numNewLogs >= logEntriesSize) {
+			/* new logs will exceed log entry space, increase here before continuing */
+			/* keep increasing until there is room */
+			increaseLogEntries();
+		} else {
+			break;
+		}
 	}
 	/* if there are new entries from rpc to add, add them */
-	if(lastNonConflictIndex != numEntries) {
-		memcpy(&logEntries[logEntryIndex], &entries[lastNonConflictIndex], sizeof(LogEntry) * numNewLogs);
+	if(numNewLogs > 0) {
+		memcpy(&logEntries[logEntryIndex + 1], &entries[numNonConflicting], sizeof(LogEntry) * numNewLogs);
 	}
 	logEntryIndex += numNewLogs;
+
 	/* 5. update commitIndex if leaderCommit is larger by min(leaderCommit, index of last new entry) */
 	if(leaderCommit > commitIndex) {
 		if(leaderCommit < logEntryIndex) {
@@ -264,8 +263,10 @@ int respondToRPC(int s, fd_set *master) {
 		handleVoteMsg(&msg, &replyMsg);
 	} else {
 		printf("Error: unknown rpc type on msg rec\n");
+		free(entries);
 		return -1;
 	}
+	free(entries);
 
 	/* reply */
 	if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
@@ -358,7 +359,8 @@ void *AppendEntryThread(void *args) {
 	int followerNextIndex = nextIndex[followerId];
 	if(logEntryIndex < followerNextIndex) {
 		/* Send heartbeat if no log entries to send (default values, w/ commitIndex) */
-		if(AppendEntries(sockfd, currentTerm, leaderId, 0, 0, NULL, 0, commitIndex) == NULL) {
+		if(AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
+			NULL, 0, commitIndex) == NULL) {
 			printf("Error: sending heartbeat in append entry thread for server %d\n", followerId);
 		}
 		return NULL;
@@ -377,6 +379,10 @@ void *AppendEntryThread(void *args) {
 		}
 
 		followerNextIndex -= 1;
+		if(followerNextIndex < 1) {
+			printf("decremented follower next index to less than 1, setting to 1\n");
+			followerNextIndex = 1;
+		}
 		/* If a higher term is found from the follower, then this server is no longer leader */
 		/* end thread, and also other threads will have the same FOLLOWER check and end */
 		checkTerm(result->term);
@@ -709,7 +715,6 @@ int main(int argc, char *argv[]) {
 		/* server state specific logic: */
 		switch (serverStateType) {
 			case FOLLOWER:
-				/* TODO: Implment Follower Case */
 				printf("Server is in the follower state\n");
 
 				/* TODO: Respond to RPC from candidates and leaders */
@@ -745,7 +750,6 @@ int main(int argc, char *argv[]) {
 
 				break;
 			case CANDIDATE:
-				/* TODO: Implement Candidate Case */
 				printf("Server has entered CANDIDATE state\n");
 
 				/* start election */
@@ -835,10 +839,7 @@ int main(int argc, char *argv[]) {
 				}
 				break;
 			case LEADER:
-				/* TODO: Implement Leader case */
 				printf("Server is in the leader state\n");
-
-				/* TODO: implement heartbeat */
 
 				/* read client */
 				/* TODO: implement actual client, just stdin for now */
