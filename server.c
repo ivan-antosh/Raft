@@ -339,6 +339,15 @@ RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
 	return replyMsg;
 }
 
+/* single time logic for when server converts to leader */
+void handleNewLeader() {
+	/* init nextIndex and matchIndex vals */
+	for(int i = 0; i < NUM_SERVERS; i++) {
+		nextIndex[i] = logEntryIndex + 1;
+		matchIndex[i] = 0;
+	}
+}
+
 /* Thread to handle append entry rpc calls */
 void *AppendEntryThread(void *args) {
 	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
@@ -812,6 +821,7 @@ int main(int argc, char *argv[]) {
 											/* Event A: Candidate reveived the majority of the votes */
 											killThreads(threads, NUM_SERVERS-1);
 											serverStateType = LEADER;
+											handleNewLeader();
 											break;
 										}
 									} else {
