@@ -123,7 +123,10 @@ void checkTerm(int term) {
 	if (term > currentTerm) {
 		currentTerm = term;
 		/* if term out of date, then server is a follower */
+		printf("Converting server to FOLLOWER\n");
 		serverStateType = FOLLOWER;
+		/* reset votedFor on new term */
+		votedFor = NULL;
 	}
 	pthread_mutex_unlock(&termLock);
 }
@@ -742,6 +745,7 @@ int main(int argc, char *argv[]) {
 					exit(4);
 				} else if(check == 0) {
 					/* timer ran out, no more fds, so no leader heartbeat was rec */
+					printf("Converting server to CANDIDATE\n");
 					serverStateType = CANDIDATE;
 					break;
 				} else {
@@ -810,7 +814,7 @@ int main(int argc, char *argv[]) {
 
 				/* Candidate loops until either:
 				 * a) Candidate receives the majority of the votes
-				 * b) Another server establises itself as a leader. (AKA. receives a AppendEntries call)
+				 * b) Another server establises itself as a leader. (AKA. receives rpc call with higher term)
 				 * c) Election timeout
 				 */
 				for (;;){
@@ -820,7 +824,7 @@ int main(int argc, char *argv[]) {
 						perror("select: read on candidate");
 						exit(4);
 					} else if(check == 0) {
-						/* Event C: Electiopn timeout elapsed */
+						/* Event C: Election timeout elapsed, will restart CANDIDATE loop to start new election */
 						break;
 					} else {
 						for(i = 0; i <= fdmax; i++) {
@@ -829,31 +833,30 @@ int main(int argc, char *argv[]) {
 									handle_new_connection(i, &master, &fdmax);
 								} else {
 									RPCReplyMsg rec = receiveCandidateRPC(i, &master);
-									if(rec.rpcType == APPEND) {
-										/* Event B: Anoter server send a Append Entries call establising itself as the leader */
-										serverStateType = FOLLOWER;
-										break;
+									if(serverStateType == FOLLOWER) {
+										/* Event B: Another server had a higher term, end CANDIDATE loop */
+										goto done_reading;
 									} else if (rec.rpcType == VOTE) {
 										if (rec.result == 1) {
 											votesReceived += 1;
 										}
 										/* Check for majority vote */
-										if (votesReceived > NUM_SERVERS/2) {
-											/* Event A: Candidate reveived the majority of the votes */
+										if (votesReceived > (int)(NUM_SERVERS / 2)) {
+											/* Event A: Candidate received the majority of the votes, become LEADER and end CANDIDATE loop */
 											killThreads(threads, NUM_SERVERS-1);
+											printf("Converting server to LEADER\n");
 											serverStateType = LEADER;
 											handleNewLeader();
-											break;
+											goto done_reading;
 										}
-									} else {
-										perror("receiveCandidateRPC: handle rpc call");
 									}
 								}
 							}
 						}
 					}
 				}
-				break;
+				done_reading:
+					break;
 			case LEADER:
 				printf("Server is in the leader state\n");
 
