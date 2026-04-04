@@ -95,10 +95,15 @@ void applyOldestLog() {
 				/* update state value */
 				state->val = val;
 			}
+			printf("Applied PUT for %s with val %d\n", key, val);
 			break;
 		case GET:
 			/* nothing to commit for GET */
-			printf("Error: shouldn't have a GET in log\n"); /* maybe */
+			if(state == NULL) {
+				printf("No value for %s\n", key);
+			} else {
+				printf("Value for %s is %d\n", key, state->val);
+			}
 			break;
 		case DEL:
 			/* delete state if there is one with the same key */
@@ -106,6 +111,7 @@ void applyOldestLog() {
 				ListRemove(stateMachine);
 				StateEntryFree(state);
 			}
+			printf("Applied DEL for %s\n", key);
 			break;
 	}
 }
