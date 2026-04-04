@@ -32,6 +32,7 @@ typedef struct {
 /* persistent on all servers */
 /* lastest term server has seen */
 int currentTerm = 0;
+pthread_mutex_t termLock = PTHREAD_MUTEX_INITIALIZER; /* lock for current term */
 /* candidateId that received vote in current term, NULL if none */
 int *votedFor = NULL;
 /* log entries, command for state machine and term when entry received by leader */
@@ -111,11 +112,14 @@ void applyOldestLog() {
 
 /* For RPC req OR resp, if contains term T > current term, need to update term and set to FOLLOWER */
 void checkTerm(int term) {
+	/* use mutex since called in threads */
+	pthread_mutex_lock(&termLock);
 	if (term > currentTerm) {
 		currentTerm = term;
 		/* if term out of date, then server is a follower */
 		serverStateType = FOLLOWER;
 	}
+	pthread_mutex_unlock(&termLock);
 }
 
 /* handle an append message */
@@ -356,7 +360,7 @@ void *AppendEntryThread(void *args) {
 	int followerId = threadArgs->followerId;
 	int leaderId = threadArgs->leaderId;
 
-	int followerNextIndex = nextIndex[followerId];
+	int followerNextIndex = nextIndex[followerId - 1];
 	if(logEntryIndex < followerNextIndex) {
 		/* Send heartbeat if no log entries to send (default values, w/ commitIndex) */
 		if(AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
@@ -370,8 +374,13 @@ void *AppendEntryThread(void *args) {
 	int success = 0;
 	/* keep trying AppendEntries */
 	while(!success) {
+		/* mutex around term since other threads call checkTerm() */
+		pthread_mutex_lock(&termLock);
+		int currentTermSnap = currentTerm;
+		pthread_mutex_unlock(&termLock);
+
 		int numEntriesToSend = logEntryIndex - followerNextIndex + 1;
-		result = AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
+		result = AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
 			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);	
 		if(result == NULL) {
 			printf("Error: Append entries for append entries thread returned NULL for server %d\n", followerId);
@@ -393,8 +402,8 @@ void *AppendEntryThread(void *args) {
 		free(result);
 	}
 
-	nextIndex[followerId] = logEntryIndex + 1;
-	matchIndex[followerId] = logEntryIndex;
+	nextIndex[followerId - 1] = logEntryIndex + 1;
+	matchIndex[followerId - 1] = logEntryIndex;
 	return NULL;
 }
 
