@@ -245,10 +245,10 @@ int respondToRPC(int s, fd_set *master) {
 	}
 	/* TODO: remove, just for checking */
 	if(entries == NULL) {
-		printf("Entries: NULL");
+		printf("Entries: NULL\n");
 	} else {
 		for(int i = 0; i < numEntries; i++) {
-			printf("Entry %d: x: %s, y: %d", i, entries[i].cmd.x, entries[i].cmd.y);
+			printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
 		}
 	}
 
@@ -316,10 +316,10 @@ RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
 	}
 	/* TODO: remove, just for checking */
 	if(entries == NULL) {
-		printf("Entries: NULL");
+		printf("Entries: NULL\n");
 	} else {
 		for(int i = 0; i < numEntries; i++) {
-			printf("Entry %d: x: %s, y: %d", i, entries[i].cmd.x, entries[i].cmd.y);
+			printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
 		}
 	}
 
@@ -678,7 +678,7 @@ int main(int argc, char *argv[]) {
 
 	/* init timers */
 	electionTimerVal = (rand() % 151 + 150) * 1000; /* between 150-300 ms */
-	printf("server will use election timeout of %dms", electionTimerVal);
+	printf("server will use election timeout of %dms\n", electionTimerVal);
 	electionTimer.tv_sec = 0;
 	electionTimer.tv_usec = electionTimerVal;
 
