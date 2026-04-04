@@ -717,7 +717,7 @@ int main(int argc, char *argv[]) {
 	for (;;) {
 		/* for all server states: */
 		/* if commit index is larger than last applied, increase last applied and commit new log */
-		if(commitIndex > lastApplied) {
+		while(commitIndex > lastApplied) {
 			applyOldestLog();
 		}
 
