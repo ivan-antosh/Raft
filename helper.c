@@ -1,9 +1,12 @@
 #include <types.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stddef.h>
 
 #include <signal.h>
 #include <pthread.h>
+#include <sys/socket.h>
 
 #include <helper.h>
 
@@ -35,5 +38,46 @@ int killThreads(pthread_t *threads, int threadCount) {
 			return 1;
 		};
 	}
+	return 0;
+}
+
+/* rec totalBytesToRec amount of bytes, convert to LogEntry list and return */
+LogEntry *getMsgEntries(int s, size_t totalBytesToRec) {
+	size_t bytesRec = 0;
+	int check;
+	char *buffer = malloc(totalBytesToRec);
+	if(!buffer) {
+		perror("malloc");
+		return NULL;
+	}
+
+	while(bytesRec < totalBytesToRec) {
+		check = recv(s, (buffer + bytesRec), (totalBytesToRec - bytesRec), 0);
+		if(check <= 0) {
+			printf("Error: did not rec enough bytes for entries\n");
+			free(buffer);
+			return NULL;
+		}
+		bytesRec += check;
+	}
+	
+	return (LogEntry *)buffer;
+}
+
+/* send LogEntries bytes */
+int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend) {
+	size_t bytesSent = 0;
+	int check;
+	char *buffer = (char *)entries;
+    
+	while(bytesSent < totalBytesToSend) {
+		check = send(s, (buffer + bytesSent), (totalBytesToSend - bytesSent), 0);
+		if(check <= 0) {
+			printf("Error: did not send enough bytes for entries\n");
+			return -1;
+		}
+		bytesSent += check;
+	}
+
 	return 0;
 }

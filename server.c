@@ -22,6 +22,7 @@
 #define STDIN 0
 
 typedef struct {
+	int sockfd;
 	int followerId;
 	int leaderId;
 } AppendEntryThreadArgs;
@@ -209,29 +210,6 @@ void handleVoteMsg(RPCMsg *msg, RPCReplyMsg *replyMsg) {
 	return;
 }
 
-/* rec totalBytesToRec amount of bytes, convert to LogEntry list and return */
-LogEntry *getMsgEntries(int s, size_t totalBytesToRec) {
-	size_t bytesRec = 0;
-	int check;
-	char *buffer = malloc(totalBytesToRec);
-	if(!buffer) {
-		perror("malloc");
-		return NULL;
-	}
-
-	while(bytesRec < totalBytesToRec) {
-		check = recv(s, (buffer + bytesRec), (totalBytesToRec - bytesRec), 0);
-		if(check <= 0) {
-			printf("Error: did not rec enough bytes for entries\n");
-			free(buffer);
-			return NULL;
-		}
-		bytesRec += check;
-	}
-	
-	return (LogEntry *)buffer;
-}
-
 /* Receive, handle, respond to incoming message
  * Input:
  * 	s: sockfd to rec from
@@ -364,6 +342,7 @@ RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
 /* Thread to handle append entry rpc calls */
 void *AppendEntryThread(void *args) {
 	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
+	int sockfd = threadArgs->sockfd;
 	int followerId = threadArgs->followerId;
 	int leaderId = threadArgs->leaderId;
 
@@ -372,21 +351,29 @@ void *AppendEntryThread(void *args) {
 		return NULL;
 	}
 
-	AppendResult result;
-	result.success = 0;
+	AppendResult *result = NULL;
+	int success = 0;
 	/* keep trying AppendEntries */
-	while(!result.success) {
+	while(!success) {
 		int numEntriesToSend = logEntryIndex - followerNextIndex + 1;
-		result = AppendEntries(currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
+		result = AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, logEntries[followerNextIndex - 1].term,
 			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);	
+		if(result == NULL) {
+			printf("Error: Append entries for append entries thread returned NULL\n");
+			return NULL;
+		}
+
 		followerNextIndex -= 1;
 		/* If a higher term is found from the follower, then this server is no longer leader */
 		/* end thread, and also other threads will have the same FOLLOWER check and end */
-		checkTerm(result.term);
+		checkTerm(result->term);
 		if(serverStateType == FOLLOWER) {
 			return NULL;
 		}
+		success = result->success;
 	}
+	
+	free(result);
 	nextIndex[followerId] = logEntryIndex + 1;
 	matchIndex[followerId] = logEntryIndex;
 	return NULL;
@@ -897,6 +884,7 @@ int main(int argc, char *argv[]) {
 					break;
 				}
 				for(int i = 0; i < (NUM_SERVERS-1); i++) {
+					appendEntriesThreadArgs[i].sockfd = servers[i].sockfd;
 					appendEntriesThreadArgs[i].followerId = servers[i].id;
 					appendEntriesThreadArgs[i].leaderId = id;
 					/* create thread */
@@ -923,7 +911,11 @@ int main(int argc, char *argv[]) {
 					n += 1;
 					int checkServers = 0;
 					for(int i = 0; i < (NUM_SERVERS-1); i++) {
-						if(matchIndex[i] >= n) {
+						/* dont check own matchIndex */
+						if(i == id) {
+							continue;
+						}
+						if(matchIndex[i-1] >= n) {
 							checkServers += 1;
 						}
 					}
