@@ -390,9 +390,9 @@ void *AppendEntryThread(void *args) {
 			return NULL;
 		}
 		success = result->success;
+		free(result);
 	}
 
-	free(result);
 	nextIndex[followerId] = logEntryIndex + 1;
 	matchIndex[followerId] = logEntryIndex;
 	return NULL;
