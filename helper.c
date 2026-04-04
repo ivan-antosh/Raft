@@ -3,12 +3,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <unistd.h>
 
 #include <signal.h>
 #include <pthread.h>
 #include <sys/socket.h>
 
 #include <helper.h>
+
+#define FILENAME_LEN 64
 
 /* Comparator for ListSearch() lib call to search for state with key == comparisonArg */
 int StateEntryKeyComparator(void *item, void *comparisonArg) {
@@ -80,4 +83,89 @@ int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend) {
 	}
 
 	return 0;
+}
+
+/* write a servers state (current term, voted for, log entries) to a binary file (state<id>.bin)
+ * return 0 on success, -1 of fail
+ */
+int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries) {
+	char filename[FILENAME_LEN];
+	snprintf(filename, sizeof(filename), "state%d.bin", id);
+	/* open file for writing */
+	FILE *f = fopen(filename, "wb");
+	if(!f) {
+		perror("fopen");
+		return -1;
+	}
+
+	PersistentState state;
+	state.currentTerm = currentTerm;
+	state.votedFor = votedFor;
+	state.numEntries = numEntries;
+	/* save state */
+	if(fwrite(&state, sizeof(PersistentState), 1, f) != 1) {
+		printf("Error: failed to write persistent state\n");
+		perror("fwrite");
+		fclose(f);
+		return -1;
+	}
+	/* save entries */
+	if(numEntries > 0) {
+		if(fwrite(entries, sizeof(LogEntry), numEntries, f) != numEntries) {
+			printf("Error: failed to write log entries\n");
+			perror("fwrite");
+			fclose(f);
+			return -1;
+		}
+	}
+
+	fsync(fileno(f)); /* sync file */
+	fclose(f);
+	return 0;
+}
+
+/* read state (current term, voted for, log entries) from binary file (state<id>.bin)
+ * returns Log entry pointer. Will be NULL on fail, or if there are no entries stored (if numEntries is 0)
+ * stores saved term, vote, and numEntries to pointers passed as params
+ */
+LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries) {
+	char filename[FILENAME_LEN];
+	snprintf(filename, sizeof(filename), "state%d.bin", id);
+	/* open file for reading */
+	FILE *f = fopen(filename, "rb");
+	if(!f) {
+		perror("fopen");
+		return NULL;
+	}
+
+	/* read state */
+	PersistentState state;
+	if(fread(&state, sizeof(PersistentState), 1, f) != 1) {
+		printf("Error: failed to read persistent state\n");
+		perror("fread");
+		return NULL;
+	}
+	/* read log entries (if there are any, based on numEntries stored)*/
+	LogEntry *entries = NULL;
+	if(state.numEntries > 0) {
+		entries = malloc(sizeof(LogEntry) * state.numEntries);
+		if(!entries) {
+			perror("malloc");
+			fclose(f);
+			return NULL;
+		}
+		if(fread(entries, sizeof(LogEntry), state.numEntries, f) != state.numEntries) {
+			printf("Error: failed to read log entries\n");
+			free(entries);
+			fclose(f);
+			return NULL;
+		}
+	}
+
+	fclose(f);
+	/* set values and return log entries */
+	*currentTerm = state.currentTerm;
+	*votedFor = state.votedFor;
+	*numEntries = state.numEntries;
+	return entries;
 }
