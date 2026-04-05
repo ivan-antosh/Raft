@@ -2,6 +2,7 @@
 #define HELPER_H
 
 #include <request_vote.h>
+#include <pthread.h>
 
 /* used for writing/reading persistent state */
 /* will also w/r log entries separately */
@@ -21,5 +22,7 @@ int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend);
 
 int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries);
 LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries);
+
+int get_listener_socket(char *portNum);
 
 #endif
