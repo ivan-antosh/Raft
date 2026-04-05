@@ -180,6 +180,27 @@ LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries) {
 	return entries;
 }
 
+/* map RPC header vals to an int for switch case
+ * 1: APPEND MSG
+ * 2: APPEND REPLY
+ * 3: VOTE MSG
+ * 4: VOTE REPLY
+ * 0: unknown
+ */
+int mapHeaderToInt(RPCMsgType msgType, RPCType type) {
+	if(type == APPEND && msgType == MSG) {
+		return 1;
+	} else if(type == APPEND && msgType == REPLY) {
+		return 2;
+	} else if(type == VOTE && msgType == MSG) {
+		return 3;
+	} else if(type == VOTE && msgType == REPLY) {
+		return 4;
+	} else {
+		return 0;
+	}
+}
+
 /* return listener socket */
 int get_listener_socket(char *portNum) {
 	struct addrinfo hints, *ai, *p;

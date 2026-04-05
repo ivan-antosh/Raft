@@ -8,7 +8,7 @@ typedef struct {
 	int success; /* 0 fail, 1 success */
 } AppendResult;
 
-AppendResult *AppendEntries(int sockfd, int term, int leaderId, int prevLogIndex, int prevLogTerm,
+int AppendEntries(int sockfd, int term, int leaderId, int prevLogIndex, int prevLogTerm,
 	LogEntry *entries, int numEntries, int leaderCommit);
 
 #endif

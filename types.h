@@ -21,11 +21,17 @@ typedef enum {
 	DEL
 } CommandType;
 
-/* RPC types, for RPCMsg */
+/* RPC types, for RPCHeaderMsg */
 typedef enum {
 	APPEND,
 	VOTE
 } RPCType;
+
+/* RPC msg types, for RPCHeaderMsg */
+typedef enum {
+	MSG,
+	REPLY
+} RPCMsgType;
 
 /* a command, to be stored in log / committed to state */
 typedef struct {
@@ -59,29 +65,40 @@ typedef struct {
 	uint32_t id;
 } HandshakeMsg;
 
-/* RPC message, used for both AppendEntries RPC and RequestVote RPC
- * described in format: <append> / <vote> -> <append functionality> / <vote functionality>
- * 	when receiving message, based on rpcType, will process vars differently based on description
- * need to read 
- */
+/* RPC header msg to send before the body (msg or reply msg) */
 typedef struct {
+	uint16_t rpcMsgType; /* Msg / ReplyMsg -> converted RPCHeaderType */
 	uint16_t rpcType; /* Append / Vote -> converted RPCType */
-	uint32_t term; /* leader / candidate -> term */
-	uint32_t id; /* leader / candidate -> follower redirect clients / requesting vote */
-	uint32_t logIndex; /* prev / last -> index immediately preceding new ones / last log entry index */
-	uint32_t logTerm; /* prev / last -> prevLogIndex term / term of last log entry */
+} RPCHeader;
 
-	/* Append only vars (set to default vals for Vote): */
+/* RPC message for append entries */
+typedef struct {
+	uint32_t term; /* leaders term */
+	uint32_t leaderId; /* so follower can redirect clients */
+	uint32_t prevLogIndex; /* index immediately preceding new ones */
+	uint32_t prevLogTerm; /* prevLogIndex term */
 	uint32_t entriesLen; /* len of entries -> entries sent separately as a stream of bytes after */
-	uint32_t leaderCommit; /* commitIndex */
-} RPCMsg;
+	uint32_t leaderCommit; /* leaders commitIndex */
+} RPCAppendMsg;
 
-/* RPC reply message as a reply, for both AppendEntries and RequestVote */
+/* RPC message for request vote */
 typedef struct {
-	uint16_t rpcType; /* Append / Vote -> converted RPCType */
-	uint32_t term; /* term to update leader/candidate */
-	uint32_t result; /* success (if follower contained entry matching prevLogIndex and prevLogTerm) /
-					    voteGranted (candidate received vote) */
-} RPCReplyMsg;
+	uint32_t term; /* candidates term */
+	uint32_t candidateId; /* candidate requesting vote */
+	uint32_t lastLogIndex; /* candidates last log entry index */
+	uint32_t lastLogTerm; /* candidates term of last log entry */
+} RPCVoteMsg;
+
+/* RPC reply message for append entries */
+typedef struct {
+	uint32_t term; /* term to update leader */
+	uint32_t success; /* if follower contained entry matching prevLogIndex and prevLogTerm */
+} RPCAppendReplyMsg;
+
+/* RPC reply message for request vote */
+typedef struct {
+	uint32_t term; /* term to update candidate */
+	uint32_t voteGranted; /* whether candidate received vote */
+} RPCVoteReplyMsg;
 
 #endif

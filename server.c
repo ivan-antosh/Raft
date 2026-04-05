@@ -22,7 +22,13 @@
 #define STDIN 0
 
 typedef struct {
+	int headerInt;
+	int result;
+} RPCHandlerResult;
+
+typedef struct {
 	int sockfd;
+	fd_set *master;
 	int followerId;
 	int leaderId;
 } AppendEntryThreadArgs;
@@ -116,8 +122,10 @@ void applyOldestLog() {
 	}
 }
 
-/* For RPC req OR resp, if contains term T > current term, need to update term and set to FOLLOWER */
-void checkTerm(int term) {
+/* For RPC req OR resp, if contains term T > current term, need to update term and set to FOLLOWER
+ * return 1 if new term, 0 if not
+ */
+int checkTerm(int term) {
 	/* use mutex since called in threads */
 	pthread_mutex_lock(&termLock);
 	if (term > currentTerm) {
@@ -127,29 +135,29 @@ void checkTerm(int term) {
 		serverStateType = FOLLOWER;
 		/* reset votedFor on new term */
 		votedFor = NULL;
+		pthread_mutex_unlock(&termLock);
+		return 1;
 	}
 	pthread_mutex_unlock(&termLock);
+	return 0;
 }
 
 /* handle an append message */
-void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg *replyMsg) {
+void handleAppendMsg(RPCAppendMsg *msg, LogEntry *entries, int numEntries, RPCAppendReplyMsg *replyMsg) {
 	int term = ntohl(msg->term);
 	/* int leaderId = ntohl(msg->id);*/ /* TODO: for when we do client redirection */
-	int prevLogIndex = ntohl(msg->logIndex);
-	int prevLogTerm = ntohl(msg->logTerm);
+	int prevLogIndex = ntohl(msg->prevLogIndex);
+	int prevLogTerm = ntohl(msg->prevLogTerm);
 	int leaderCommit = ntohl(msg->leaderCommit);
-
-	/* update term */
-	checkTerm(term);
 
 	/* 1. reply false if term < currentTerm */
 	/* 2. reply false if log doesnt have entry at prevLogIndex with same term */
 	if(term < currentTerm || prevLogIndex > logEntryIndex || (prevLogIndex > 0 && logEntries[prevLogIndex].term != prevLogTerm)) {
 		/* reply */
-		replyMsg->result = htonl(0);
+		replyMsg->success = htonl(0);
 		return;
 	}
-	replyMsg->result = htonl(1);
+	replyMsg->success = htonl(1);
 
 	/* 3. remove logs at and after a conflicting log */
 	int numNonConflicting = 0; /* how many entries not conflicting */
@@ -198,30 +206,27 @@ void handleAppendMsg(RPCMsg *msg, LogEntry *entries, int numEntries, RPCReplyMsg
 }
 
 /* handle a vote message */
-void handleVoteMsg(RPCMsg *msg, RPCReplyMsg *replyMsg) {
+void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
 	int term = ntohl(msg->term);
-	int candidateId = ntohl(msg->id);
-	int lastLogIndex = ntohl(msg->logIndex);
-	int lastLogTerm = ntohl(msg->logTerm);
+	int candidateId = ntohl(msg->candidateId);
+	int lastLogIndex = ntohl(msg->lastLogIndex);
+	int lastLogTerm = ntohl(msg->lastLogTerm);
 
 	int myLastLogTerm = 0;
 	if(logEntryIndex > 0) {
 		myLastLogTerm = logEntries[logEntryIndex].term;
 	}
 
-	/* update term */
-	checkTerm(term);
-
 	if(term < currentTerm) {
 		/* 1. dont grant vote if term is less */
-		replyMsg->result = htonl(0);
+		replyMsg->voteGranted = htonl(0);
 	} else if((votedFor == NULL || *votedFor == candidateId) &&
 		((lastLogTerm > myLastLogTerm) || (lastLogTerm == myLastLogTerm && lastLogIndex >= logEntryIndex))) {
 		/* 2. grant vote if votedFor is null or candidateId, and candidate log is atleast as up-to-date as log */
-		replyMsg->result = htonl(1);
+		replyMsg->voteGranted = htonl(1);
 	} else {
 		/* otherwise, dont grant vote */
-		replyMsg->result = htonl(0);
+		replyMsg->voteGranted = htonl(0);
 	}
 
 	return;
@@ -233,130 +238,207 @@ void handleVoteMsg(RPCMsg *msg, RPCReplyMsg *replyMsg) {
  *  master: master set of sockfds
  * Return: 1 if rec Append type, 0 if rec non-Append type, -1 on error
  */
-int respondToRPC(int s, fd_set *master) {
-	RPCMsg msg;
+RPCHandlerResult RPCHandler(int s, fd_set *master) {
 	int check;
+	RPCHandlerResult result = {0, 0};
 
-	/* receive msg frame */
-	check = recv(s, &msg, sizeof(msg), 0);
-	if (check != sizeof(msg)) {
-		printf("Error: did not rec full msg\n");
+	/* rec header */
+	RPCHeader header;
+	check = recv(s, &header, sizeof(header), 0);
+	if(check != sizeof(header)) {
+		printf("Error: did not rec full header\n");
 		perror("recv");
 		close(s);
 		FD_CLR(s, master);
-		return -1;
+		result.result = -1;
+		return result;
+	}
+	RPCMsgType msgType = ntohs(header.rpcMsgType);
+	RPCType type = ntohs(header.rpcType);
+
+	int headerInt = mapHeaderToInt(msgType, type);
+	result.headerInt = headerInt;
+	/* rec body */
+	switch(headerInt) {
+		case 0:
+			printf("Error: Unknown header\n");
+			result.result = -1;
+			return result;
+		case 1: /* APPEND MSG */
+			RPCAppendMsg appendMsg;
+			/* rec */
+			check = recv(s, &appendMsg, sizeof(appendMsg), 0);
+			if (check != sizeof(appendMsg)) {
+				printf("Error: did not rec full append msg\n");
+				perror("recv");
+				close(s);
+				FD_CLR(s, master);
+				result.result = -1;
+				return result;
+			}
+			/* if frame indicates entries to rec, rec them */
+			int numEntries = ntohl(appendMsg.entriesLen);
+			LogEntry *entries = NULL;
+			if(numEntries > 0) {
+				size_t totalBytesToRec = numEntries * sizeof(LogEntry);
+				entries = getMsgEntries(s, totalBytesToRec);
+				if(!entries) {
+					printf("Error: expected to rec log entries, but did not rec\n");
+					close(s);
+					FD_CLR(s, master);
+					result.result = -1;
+					return result;
+				}
+			}
+			/* TODO: remove, just for checking */
+			if(entries == NULL) {
+				printf("Entries: NULL\n");
+			} else {
+				for(int i = 0; i < numEntries; i++) {
+					printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
+				}
+			}
+			
+			checkTerm(ntohl(appendMsg.term)); /* will convert to FOLLOWER if new term */
+			RPCAppendReplyMsg replyMsg;
+			replyMsg.term = htonl(currentTerm); /* set term */
+			replyMsg.success = 0; /* default success to false */
+			switch(serverStateType) {
+				case(FOLLOWER):
+					/* handle append msg for follower */
+					handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg); /* may set success to true */
+					break;
+				case(CANDIDATE):
+				case(LEADER):
+					break;
+			}
+			if(entries != NULL) {
+				free(entries);
+			}
+
+			/* reply */
+			RPCHeader headerReply;
+			headerReply.rpcMsgType = htons(REPLY);
+			headerReply.rpcType = htons(APPEND);
+			if(send(s, &headerReply, sizeof(headerReply), 0) == -1) {
+				printf("Error: failed header send on rpc append reply\n");
+				perror("send");
+				close(s);
+				FD_CLR(s, master);
+				result.result = -1;
+				return result;
+			}
+			if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
+				printf("Error: failed msg send on rpc append reply\n");
+				perror("send");
+				close(s);
+				FD_CLR(s, master);
+				result.result = -1;
+				return result;
+			}
+
+			break;
+		case 2: /* APPEND REPLY */
+			RPCAppendReplyMsg appendReplyMsg;
+			/* rec */
+			check = recv(s, &appendReplyMsg, sizeof(appendReplyMsg), 0);
+			if (check != sizeof(appendReplyMsg)) {
+				printf("Error: did not rec full append reply msg\n");
+				perror("recv");
+				close(s);
+				FD_CLR(s, master);
+				result.result = -1;
+				return result;
+			}
+
+			checkTerm(ntohl(appendReplyMsg.term)); /* will convert to FOLLOWER if new term */
+			switch(serverStateType) {
+				case(FOLLOWER):
+				case(CANDIDATE):
+					break;
+				case(LEADER):
+					/* TODO: return success */
+					result.result = ntohl(appendReplyMsg.success);
+					break;
+			}
+
+			break;
+		case 3: /* VOTE MSG */
+			RPCVoteMsg voteMsg;
+			/* rec */
+			check = recv(s, &voteMsg, sizeof(voteMsg), 0);
+			if (check != sizeof(voteMsg)) {
+				printf("Error: did not rec full vote msg\n");
+				perror("recv");
+				close(s);
+				FD_CLR(s, master);
+				result.result = -1;
+				return result;
+			}
+
+			checkTerm(ntohl(voteMsg.term)); /* will convert to FOLLOWER if new term */
+			switch(serverStateType) {
+				case(FOLLOWER):
+				case(CANDIDATE):
+				case(LEADER):
+					/* handle */
+					RPCVoteReplyMsg replyMsg;
+					handleVoteMsg(&voteMsg, &replyMsg);
+					replyMsg.term = htonl(currentTerm);
+					
+					/* reply*/
+					RPCHeader headerReply;
+					headerReply.rpcMsgType = htons(REPLY);
+					headerReply.rpcType = htons(VOTE);
+					if(send(s, &headerReply, sizeof(headerReply), 0) == -1) {
+						printf("Error: failed header send on rpc vote reply\n");
+						perror("send");
+						close(s);
+						FD_CLR(s, master);
+						result.result = -1;
+						return result;
+					}
+					if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
+						printf("Error: failed msg send on rpc vote reply\n");
+						perror("send");
+						close(s);
+						FD_CLR(s, master);
+						result.result = -1;
+						return result;
+					}
+					break;
+			}
+
+			break;
+		case 4: /* VOTE REPLY */
+			RPCVoteReplyMsg voteReplyMsg;
+			/* rec */
+			check = recv(s, &voteReplyMsg, sizeof(voteReplyMsg), 0);
+			if (check != sizeof(voteReplyMsg)) {
+				printf("Error: did not rec full vote reply msg\n");
+				perror("recv");
+				close(s);
+				FD_CLR(s, master);
+				result.result = -1;
+				return result;
+			}
+
+			checkTerm(ntohl(voteReplyMsg.term)); /* will convert to FOLLOWER if new term */
+			switch(serverStateType) {
+				case(FOLLOWER):
+					break;
+				case(CANDIDATE):
+					/* return voteGranted */
+					result.result = ntohl(voteReplyMsg.voteGranted);
+					break;
+				case(LEADER):
+					break;
+			}
+
+			break;
 	}
 
-	/* if frame indicates entries to rec, rec them */
-	LogEntry *entries = NULL;
-	int numEntries = ntohl(msg.entriesLen);
-	if(numEntries > 0) {
-		size_t totalBytesToRec = numEntries * sizeof(LogEntry);
-		entries = getMsgEntries(s, totalBytesToRec);
-		if(!entries) {
-			printf("Error: expected to rec log entries, but did not rec\n");
-			close(s);
-			FD_CLR(s, master);
-			return -1;
-		}
-	}
-	/* TODO: remove, just for checking */
-	if(entries == NULL) {
-		printf("Entries: NULL\n");
-	} else {
-		for(int i = 0; i < numEntries; i++) {
-			printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
-		}
-	}
-
-	/* based on rpc type, handle msg differently */
-	RPCType type = ntohs(msg.rpcType);
-	RPCReplyMsg replyMsg;
-	int intType = 0;
-	if(type == APPEND) {
-		handleAppendMsg(&msg, entries, numEntries, &replyMsg);
-		intType = 1;
-	} else if(type == VOTE) {
-		handleVoteMsg(&msg, &replyMsg);
-	} else {
-		printf("Error: unknown rpc type on msg rec\n");
-		free(entries);
-		return -1;
-	}
-	replyMsg.term = htonl(currentTerm);
-	free(entries);
-
-	/* reply */
-	if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
-		printf("Error: failed send on rpc reply\n");
-		perror("send");
-		close(s);
-		FD_CLR(s, master);
-		return -1;
-	}
-
-	return intType;
-}
-
-/* Receive and handle any incoming message while in candidate state
- * Input:
- * 	s: sockfd to rec from
- *  master: master set of sockfds
- * Return: 1 if rec Append type, 0 if rec non-Append type, -1 on error
- */
-RPCReplyMsg receiveCandidateRPC(int s, fd_set *master) {
-	RPCMsg msg;
-	RPCReplyMsg replyMsg;
-	replyMsg.rpcType = -1;
-	int check;
-
-	/* receive msg frame */
-	check = recv(s, &msg, sizeof(msg), 0);
-	if (check != sizeof(msg)) {
-		printf("Error: did not rec full msg\n");
-		perror("recv");
-		close(s);
-		FD_CLR(s, master);
-		return replyMsg;
-	}
-
-	/* if frame indicates entries to rec, rec them */
-	LogEntry *entries = NULL;
-	int numEntries = ntohl(msg.entriesLen);
-	if(numEntries > 0) {
-		size_t totalBytesToRec = numEntries * sizeof(LogEntry);
-		entries = getMsgEntries(s, totalBytesToRec);
-		if(!entries) {
-			printf("Error: expected to rec log entries, but did not rec\n");
-			close(s);
-			FD_CLR(s, master);
-			return replyMsg;
-		}
-	}
-	/* TODO: remove, just for checking */
-	if(entries == NULL) {
-		printf("Entries: NULL\n");
-	} else {
-		for(int i = 0; i < numEntries; i++) {
-			printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
-		}
-	}
-
-	/* based on rpc type, handle msg differently */
-	RPCType type = ntohs(msg.rpcType);
-	if(type == APPEND) {
-		replyMsg.rpcType = type;
-		handleAppendMsg(&msg, entries, numEntries, &replyMsg);
-	} else if(type == VOTE) {
-		replyMsg.rpcType = type;
-		handleVoteMsg(&msg, &replyMsg);
-	} else {
-		printf("Error: unknown rpc type on msg rec\n");
-	}
-	replyMsg.term = htonl(currentTerm);
-
-	free(entries);
-	return replyMsg;
+	return result;
 }
 
 /* single time logic for when server converts to leader */
@@ -372,21 +454,35 @@ void handleNewLeader() {
 void *AppendEntryThread(void *args) {
 	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
 	int sockfd = threadArgs->sockfd;
+	fd_set *master = threadArgs->master;
 	int followerId = threadArgs->followerId;
 	int leaderId = threadArgs->leaderId;
+
+	RPCHandlerResult handlerResult;
 
 	int followerNextIndex = nextIndex[followerId - 1];
 	if(logEntryIndex < followerNextIndex) {
 		int prevLogTerm = (followerNextIndex > 1) ? logEntries[followerNextIndex - 1].term : 0;
 		/* Send heartbeat if no log entries to send (default values, w/ commitIndex) */
 		if(AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, prevLogTerm,
-			NULL, 0, commitIndex) == NULL) {
+			NULL, 0, commitIndex) == -1) {
 			printf("Error: sending heartbeat in append entry thread for server %d\n", followerId);
+			return NULL;
 		}
-		return NULL;
+		/* keep handling until rec an APPEND REPLY or no longer LEADER */
+		for(;;) {
+			handlerResult = RPCHandler(sockfd, master); /* might set server to FOLLOWER */
+			if(handlerResult.result == -1) {
+				printf("Error: RPC handler error for heartbeat in append entries\n");
+				return NULL;
+			}
+			if(handlerResult.headerInt == 2 || serverStateType != LEADER) {
+				return NULL;
+			}
+		}
 	}
 
-	AppendResult *result = NULL;
+	
 	int success = 0;
 	/* keep trying AppendEntries */
 	while(!success) {
@@ -397,11 +493,24 @@ void *AppendEntryThread(void *args) {
 
 		int numEntriesToSend = logEntryIndex - followerNextIndex + 1;
 		int prevLogTerm = (followerNextIndex > 1) ? logEntries[followerNextIndex - 1].term : 0;
-		result = AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, prevLogTerm,
-			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);	
-		if(result == NULL) {
-			printf("Error: Append entries for append entries thread returned NULL for server %d\n", followerId);
+		if(AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, prevLogTerm,
+			&logEntries[followerNextIndex], numEntriesToSend, commitIndex) == -1) {
+			printf("Error: sending append entries in append entries thread for server %d\n", followerId);
 			return NULL;
+		}
+		/* keep handling until rec an APPEND REPLY or no longer LEADER */
+		for(;;) {
+			handlerResult = RPCHandler(sockfd, master); /* might set server to FOLLOWER */
+			if(handlerResult.result == -1) {
+				printf("Error: RPC handler error for heartbeat in append entries\n");
+				return NULL;
+			}
+			if(serverStateType != LEADER) {
+				return NULL;
+			}
+			if(handlerResult.headerInt == 2) {
+				break;
+			}
 		}
 
 		followerNextIndex -= 1;
@@ -409,15 +518,7 @@ void *AppendEntryThread(void *args) {
 			printf("decremented follower next index to less than 1, setting to 1\n");
 			followerNextIndex = 1;
 		}
-		/* If a higher term is found from the follower, then this server is no longer leader */
-		/* end thread, and also other threads will have the same FOLLOWER check and end */
-		checkTerm(result->term);
-		if(serverStateType == FOLLOWER) {
-			free(result);
-			return NULL;
-		}
-		success = result->success;
-		free(result);
+		success = handlerResult.result;
 	}
 
 	nextIndex[followerId - 1] = logEntryIndex + 1;
@@ -720,8 +821,9 @@ int main(int argc, char *argv[]) {
 							if(i == listener) {
 								handle_new_connection(i, &master, &fdmax);
 							} else {
-								check = respondToRPC(i, &master);
-								if(check == 1) {
+								RPCHandlerResult result = RPCHandler(i, &master);
+								/* If handled APPEND MSG, reset election timer */
+								if(result.headerInt == 1 && result.result != -1) {
 									resetTimer = 1;
 								}
 							}
@@ -748,7 +850,12 @@ int main(int argc, char *argv[]) {
 
 				/* Create threads */
 				pthread_t threads[NUM_SERVERS-1];
-				RequestVoteArgs *threadArgs[NUM_SERVERS-1];
+				RequestVoteArgs *threadArgs = (RequestVoteArgs *)malloc(sizeof(RequestVoteArgs) * (NUM_SERVERS - 1));
+				if(threadArgs == NULL) {
+					printf("Error: failed to alloc request vote args\n");
+					perror("malloc");
+					break;
+				}
 
 				/* Send conccurent RequestVote request to all servers */
 				for (int i = 0; i < (NUM_SERVERS-1); i++){
@@ -756,28 +863,25 @@ int main(int argc, char *argv[]) {
 						continue;
 					}
 					/* Allocate memory for thread aruguments */
-					threadArgs[i] = (RequestVoteArgs *)malloc(sizeof(RequestVoteArgs));
-					if (threadArgs[i] == NULL) {
-						perror("Allocate memory for thread args");
-					}
-
-					threadArgs[i]->sockfd = servers[i].sockfd;
-					threadArgs[i]->msg.rpcType = VOTE;
-					threadArgs[i]->msg.term = currentTerm;
-					threadArgs[i]->msg.id = id;
-					threadArgs[i]->msg.logIndex = logEntryIndex;
+					threadArgs[i].sockfd = servers[i].sockfd;
+					threadArgs[i].msg.term = currentTerm;
+					threadArgs[i].msg.candidateId = id;
+					threadArgs[i].msg.lastLogIndex = logEntryIndex;
 					if (logEntryIndex > 0) {
-						threadArgs[i]->msg.logTerm = logEntries[logEntryIndex].term;
+						threadArgs[i].msg.lastLogTerm = logEntries[logEntryIndex].term;
 					} else {
-						threadArgs[i]->msg.logTerm = 0;
+						threadArgs[i].msg.lastLogTerm = 0;
 					}
-
-					if (pthread_create(&threads[i], NULL, RequestVoteThread, threadArgs[i]) != 0) {
-						perror("Create thread");
-						free(threadArgs[i]);
-						threadArgs[i] = NULL;
+					if (pthread_create(&threads[i], NULL, RequestVoteThread, &threadArgs[i]) != 0) {
+						perror("Create request vote thread");
 					}
 				}
+				/* wait until all threads finished */
+				for (i = 0; i < NUM_SERVERS-1; i++) {
+					pthread_join(threads[i], NULL);
+				}
+				/* Release thread argument memory */
+				free(threadArgs);
 
 				/* Candidate loops until either:
 				 * a) Candidate receives the majority of the votes
@@ -792,7 +896,6 @@ int main(int argc, char *argv[]) {
 						exit(4);
 					} else if(check == 0) {
 						/* Event C: Election timeout elapsed, will restart CANDIDATE loop to start new election */
-						killThreads(threads, threadArgs, NUM_SERVERS-1);
 						break;
 					} else {
 						for(i = 0; i <= fdmax; i++) {
@@ -800,19 +903,17 @@ int main(int argc, char *argv[]) {
 								if(i == listener) {
 									handle_new_connection(i, &master, &fdmax);
 								} else {
-									RPCReplyMsg rec = receiveCandidateRPC(i, &master);
+									RPCHandlerResult handlerResult = RPCHandler(i, &master);
 									if(serverStateType == FOLLOWER) {
 										/* Event B: Another server had a higher term, end CANDIDATE loop */
-										killThreads(threads, threadArgs, NUM_SERVERS-1);
 										goto done_reading;
-									} else if (rec.rpcType == VOTE) {
-										if (rec.result == 1) {
+									} else if (handlerResult.headerInt == 4 && handlerResult.result != -1) {
+										if (handlerResult.result == 1) {
 											votesReceived += 1;
 										}
 										/* Check for majority vote */
 										if (votesReceived > (int)(NUM_SERVERS / 2)) {
 											/* Event A: Candidate received the majority of the votes, become LEADER and end CANDIDATE loop */
-											killThreads(threads, threadArgs, NUM_SERVERS-1);
 											printf("Converting server to LEADER\n");
 											serverStateType = LEADER;
 											handleNewLeader();
@@ -937,7 +1038,7 @@ int main(int argc, char *argv[]) {
 			default:
 				perror("Invalid server state");
 		}
-		sleep(2); /* TODO: remove */
+		// sleep(2); /* TODO: remove */
 	}
 
 	return 0;

@@ -6,10 +6,10 @@
 /* Stores the arguments being passed to the RequestVote threads */
 typedef struct {
 	int sockfd;
-	RPCMsg msg;
+	RPCVoteMsg msg;
 } RequestVoteArgs;
 
 void *RequestVoteThread(void *ptr);
-void RequestVote(int sockfd, uint16_t rpcType, uint32_t term, uint32_t candidateId, uint32_t lastLogIndex, uint32_t lastLogTerm);
+int RequestVote(int sockfd, uint32_t term, uint32_t candidateId, uint32_t lastLogIndex, uint32_t lastLogTerm);
 
 #endif
