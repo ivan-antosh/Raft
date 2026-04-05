@@ -51,17 +51,45 @@ void *handle_connection(void *arg) {
 
 	freeaddrinfo(servinfo); // done with this
 	
-	printf("[Proxy] Link established: \n");
+	printf("[Proxy] Link established: target_port %s\n", args->target_port);
+
+	struct pollfd fds[2];
+	fds[0].fd = args->client_fd;
+	fds[0].events = POLLIN;
+	fds[1].fd = server_fd;
+	fds[1].events = POLLIN;
+
+	char buffer[BUFFER_SIZE];
 
 	/* Send bytes back and forth until the connection closes */
 	for (;;) {
-		/* TODO: */
-		break;
+		if (poll(fds, 2, -1) < 0) {
+			break;
+		}
+
+		/* Traffic going TO the target Raft server */
+		if (fds[0].revents & POLLIN) {
+			int bytes = recv(args->client_fd, buffer, BUFFER_SIZE, 0);
+			if (bytes <= 0) {
+				break;
+			}
+			/* TODO: Implement Corruption */
+			send(server_fd, buffer, bytes, 0);
+		}
+
+		/* Traffic going FROM the target Raft server */
+		if (fds[1].revents & POLLIN) {
+			int bytes = recv(server_fd, buffer, BUFFER_SIZE, 0);
+			if (bytes <= 0) {
+				break;
+			}
+			/* TODO: Implement Corruption */
+			send(args->client_fd, buffer, bytes, 0);
+		}
 	}
 
 	close(args->client_fd);
 	close(server_fd);
-	free(args);
 	return NULL;
 }
 
