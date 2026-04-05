@@ -133,13 +133,17 @@ void applyOldestLog() {
 int checkTerm(int term, int forceChange) {
 	/* use mutex since called in threads */
 	pthread_mutex_lock(&termLock);
-	if (term > currentTerm || forceChange) {
-		currentTerm = term;
-		/* if term out of date, then server is a follower */
+	/* if term change or are forcing a change, update to FOLLOWER */
+	if (term > currentTerm) {
+		currentTerm = term; /* only set when term change */
 		printf("Converting server to FOLLOWER\n");
 		serverStateType = FOLLOWER;
-		/* reset votedFor on new term */
-		votedFor = -1;
+		votedFor = -1; /* only reset votedFor on new term */
+		pthread_mutex_unlock(&termLock);
+		return 1;
+	} else if(forceChange) {
+		printf("Converting server to FOLLOWER\n");
+		serverStateType = FOLLOWER;
 		pthread_mutex_unlock(&termLock);
 		return 1;
 	}
