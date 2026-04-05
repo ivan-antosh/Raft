@@ -19,7 +19,7 @@ int drop_traffic(int source, int destination) {
 	int n = rand() % 100;
 
 	if (n < DROP_PROBABILITY) {
-		printf("[DROP] Dropping traffic | src: %d -> dest: %d\n", source, destination);
+		printf("\033[31m[DROP]\033[0m Dropping traffic | src: %d -> dest: %d\n", source, destination);
 		return 0;
 	}
 	return 1;
