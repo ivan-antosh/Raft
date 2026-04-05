@@ -17,8 +17,8 @@ server.o: server.c types.h
 
 # proxy
 proxy: proxy.o
-	$(CC) -o proxy proxy.o $(CFLAGS)
-proxy.o: proxy.c types.h
+	$(CC) -o proxy proxy.o $(CFLAGS) -L. -lhelper
+proxy.o: proxy.c proxy.h types.h
 	$(CC) -o proxy.o -c $(CFLAGS) $(CPPFLAGS) proxy.c -I. -I$(LIBLIST_DIR)
 
 # appendentries
