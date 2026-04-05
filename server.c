@@ -43,8 +43,8 @@ typedef struct {
 /* lastest term server has seen */
 int currentTerm = 0;
 pthread_mutex_t termLock = PTHREAD_MUTEX_INITIALIZER; /* lock for current term */
-/* candidateId that received vote in current term, NULL if none */
-int *votedFor = NULL;
+/* candidateId that received vote in current term, -1 if none */
+int votedFor = -1;
 /* log entries, command for state machine and term when entry received by leader */
 LogEntry *logEntries; /* first index is 1 */
 int logEntriesSize = 10; /* size of logEntries, increases when runs out of space */
@@ -139,7 +139,7 @@ int checkTerm(int term) {
 		printf("Converting server to FOLLOWER\n");
 		serverStateType = FOLLOWER;
 		/* reset votedFor on new term */
-		votedFor = NULL;
+		votedFor = -1;
 		pthread_mutex_unlock(&termLock);
 		return 1;
 	}
@@ -225,11 +225,11 @@ void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
 	if(term < currentTerm) {
 		/* 1. dont grant vote if term is less */
 		replyMsg->voteGranted = htonl(0);
-	} else if((votedFor == NULL || *votedFor == candidateId) &&
+	} else if((votedFor == -1 || votedFor == candidateId) &&
 		((lastLogTerm > myLastLogTerm) || (lastLogTerm == myLastLogTerm && lastLogIndex >= logEntryIndex))) {
 		/* 2. grant vote if votedFor is null or candidateId, and candidate log is atleast as up-to-date as log */
 		replyMsg->voteGranted = htonl(1);
-		*votedFor = candidateId;
+		votedFor = candidateId;
 	} else {
 		/* otherwise, dont grant vote */
 		replyMsg->voteGranted = htonl(0);
@@ -903,7 +903,7 @@ int main(int argc, char *argv[]) {
 
 				/* start election */
 				currentTerm += 1;
-				votedFor = &id;
+				votedFor = id;
 				int votesReceived = 1;
 				/* reset election timer */
 				electionTimer.tv_sec = 0;
