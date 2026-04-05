@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <netdb.h>
+#include <arpa/inet.h>
 #include <poll.h>
 
 #include "proxy.h"
@@ -11,11 +13,54 @@
 /* Thread to handle a single bidirectional traffic for a single established connection */
 void *handle_connection(void *arg) {
 	proxy_args_t *args = (proxy_args_t*)arg;
-	int client_fd = args->client_fd;
 	int server_fd;
+	int rv;
+	struct addrinfo hints, *servinfo, *p;
+	char s[INET6_ADDRSTRLEN];
 
-	printf("TEST THREAD\n");
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
+	hints.ai_socktype = SOCK_STREAM; // TCP
 
+	if((rv = getaddrinfo(args->target_host, args->target_port, &hints, &servinfo)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		return NULL;
+	}
+
+	// loop through results and connect to first one
+	for(p = servinfo; p != NULL; p = p->ai_next) {
+		if((server_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+			perror("client: socket");
+			continue;
+		}
+		inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof(s));
+
+		if(connect(server_fd, p->ai_addr, p->ai_addrlen) == -1) {
+			close(server_fd);
+			continue;
+		}
+		break;
+	}
+	if(p == NULL) {
+		/* nothing found, try again next main iteration */
+		close(args->client_fd);
+		return NULL;
+	}
+
+	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof(s));
+
+	freeaddrinfo(servinfo); // done with this
+	
+	printf("[Proxy] Link established: \n");
+
+	/* Send bytes back and forth until the connection closes */
+	for (;;) {
+		/* TODO: */
+		break;
+	}
+
+	close(args->client_fd);
+	close(server_fd);
 	free(args);
 	return NULL;
 }
