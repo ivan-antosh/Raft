@@ -703,7 +703,7 @@ int main(int argc, char *argv[]) {
 	struct timeval tv;
 	
 	struct timeval electionTimer;
-	int electionTimerVal;
+	int electionTimerVal, electionTimerVal_usec, electionTimerVal_sec;
 
 	int portNum, id;
 	int i, check;
@@ -830,10 +830,13 @@ int main(int argc, char *argv[]) {
 
 	/* init timers */
 	srand(time(NULL) ^ id);
-	electionTimerVal = (rand() % 151 + 150) * 1000; /* between 150-300 ms */
-	printf("server will use election timeout of %dms\n", electionTimerVal/1000);
-	electionTimer.tv_sec = 0;
-	electionTimer.tv_usec = electionTimerVal;
+	electionTimerVal = (rand() % 1001 + 1000) * 1000; /* between 1000-2000 ms */
+	electionTimerVal_sec = electionTimerVal / 1000000;
+	electionTimerVal_usec = electionTimerVal % 1000000;
+	printf("server will use election timeout of %ds %dms\n", electionTimerVal_sec, electionTimerVal_usec / 1000);
+
+	electionTimer.tv_sec = electionTimerVal_sec;
+	electionTimer.tv_usec = electionTimerVal_usec;
 
 	/* init lists */
 	logEntries = (LogEntry *)malloc(sizeof(LogEntry) * logEntriesSize);
@@ -893,8 +896,8 @@ int main(int argc, char *argv[]) {
 				}
 				/* if got an appendEntries call, reset timer */
 				if(resetTimer) {
-					electionTimer.tv_sec = 0;
-					electionTimer.tv_usec = electionTimerVal;
+					electionTimer.tv_sec = electionTimerVal_sec;
+					electionTimer.tv_usec = electionTimerVal_usec;
 				}
 
 				break;
@@ -906,8 +909,8 @@ int main(int argc, char *argv[]) {
 				votedFor = id;
 				int votesReceived = 1;
 				/* reset election timer */
-				electionTimer.tv_sec = 0;
-				electionTimer.tv_usec = electionTimerVal;
+				electionTimer.tv_sec = electionTimerVal_sec;
+				electionTimer.tv_usec = electionTimerVal_usec;
 
 				/* Create threads */
 				pthread_t threads[NUM_SERVERS-1];
