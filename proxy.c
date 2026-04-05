@@ -10,6 +10,21 @@
 #include "helper.h"
 #include "types.h"
 
+/* Calculates whether traffic will be dropped by the network
+ * returns: 
+ * - 1 Network traffic will be dropped
+ * - 0 Network traffic will be send to destination
+ */
+int drop_traffic(int source, int destination) {
+	int n = rand() % 100;
+
+	if (n < DROP_PROBABILITY) {
+		printf("[DROP] Dropping traffic | src: %d -> dest: %d\n", source, destination);
+		return 0;
+	}
+	return 1;
+}
+
 /* Thread to handle a single bidirectional traffic for a single established connection */
 void *handle_connection(void *arg) {
 	proxy_args_t *args = (proxy_args_t*)arg;
@@ -73,8 +88,9 @@ void *handle_connection(void *arg) {
 			if (bytes <= 0) {
 				break;
 			}
-			/* TODO: Implement Corruption */
-			send(server_fd, buffer, bytes, 0);
+			if(!drop_traffic(args->client_fd, server_fd)) {
+				send(server_fd, buffer, bytes, 0);
+			}
 		}
 
 		/* Traffic going FROM the target Raft server */
@@ -83,8 +99,9 @@ void *handle_connection(void *arg) {
 			if (bytes <= 0) {
 				break;
 			}
-			/* TODO: Implement Corruption */
-			send(args->client_fd, buffer, bytes, 0);
+			if(!drop_traffic(args->client_fd, server_fd)) {
+				send(args->client_fd, buffer, bytes, 0);
+			}
 		}
 	}
 
