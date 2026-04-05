@@ -28,7 +28,6 @@ typedef struct {
 
 typedef struct {
 	int sockfd;
-	fd_set *master;
 	int followerId;
 	int leaderId;
 } AppendEntryThreadArgs;
@@ -229,6 +228,7 @@ void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
 		((lastLogTerm > myLastLogTerm) || (lastLogTerm == myLastLogTerm && lastLogIndex >= logEntryIndex))) {
 		/* 2. grant vote if votedFor is null or candidateId, and candidate log is atleast as up-to-date as log */
 		replyMsg->voteGranted = htonl(1);
+		*votedFor = candidateId;
 	} else {
 		/* otherwise, dont grant vote */
 		replyMsg->voteGranted = htonl(0);
@@ -254,7 +254,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 		printf("Error: did not rec full header\n");
 		perror("recv");
 		close(s);
-		FD_CLR(s, master);
+		if(master) {
+			FD_CLR(s, master);
+		}
 		result.result = -1;
 		return result;
 	}
@@ -277,7 +279,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				printf("Error: did not rec full append msg\n");
 				perror("recv");
 				close(s);
-				FD_CLR(s, master);
+				if(master) {
+					FD_CLR(s, master);
+				}
 				result.result = -1;
 				return result;
 			}
@@ -290,7 +294,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				if(!entries) {
 					printf("Error: expected to rec log entries, but did not rec\n");
 					close(s);
-					FD_CLR(s, master);
+					if(master) {
+						FD_CLR(s, master);
+					}
 					result.result = -1;
 					return result;
 				}
@@ -329,7 +335,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				printf("Error: failed header send on rpc append reply\n");
 				perror("send");
 				close(s);
-				FD_CLR(s, master);
+				if(master) {
+					FD_CLR(s, master);
+				}
 				result.result = -1;
 				return result;
 			}
@@ -337,7 +345,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				printf("Error: failed msg send on rpc append reply\n");
 				perror("send");
 				close(s);
-				FD_CLR(s, master);
+				if(master) {
+					FD_CLR(s, master);
+				}
 				result.result = -1;
 				return result;
 			}
@@ -351,7 +361,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				printf("Error: did not rec full append reply msg\n");
 				perror("recv");
 				close(s);
-				FD_CLR(s, master);
+				if(master) {
+					FD_CLR(s, master);
+				}
 				result.result = -1;
 				return result;
 			}
@@ -376,7 +388,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				printf("Error: did not rec full vote msg\n");
 				perror("recv");
 				close(s);
-				FD_CLR(s, master);
+				if(master) {
+					FD_CLR(s, master);
+				}
 				result.result = -1;
 				return result;
 			}
@@ -399,7 +413,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 						printf("Error: failed header send on rpc vote reply\n");
 						perror("send");
 						close(s);
-						FD_CLR(s, master);
+						if(master) {
+							FD_CLR(s, master);
+						}
 						result.result = -1;
 						return result;
 					}
@@ -407,7 +423,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 						printf("Error: failed msg send on rpc vote reply\n");
 						perror("send");
 						close(s);
-						FD_CLR(s, master);
+						if(master) {
+							FD_CLR(s, master);
+						}
 						result.result = -1;
 						return result;
 					}
@@ -423,7 +441,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				printf("Error: did not rec full vote reply msg\n");
 				perror("recv");
 				close(s);
-				FD_CLR(s, master);
+				if(master) {
+					FD_CLR(s, master);
+				}
 				result.result = -1;
 				return result;
 			}
@@ -459,7 +479,6 @@ void handleNewLeader() {
 void *AppendEntryThread(void *args) {
 	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
 	int sockfd = threadArgs->sockfd;
-	fd_set *master = threadArgs->master;
 	int followerId = threadArgs->followerId;
 	int leaderId = threadArgs->leaderId;
 
@@ -476,7 +495,7 @@ void *AppendEntryThread(void *args) {
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
 		for(;;) {
-			handlerResult = RPCHandler(sockfd, master); /* might set server to FOLLOWER */
+			handlerResult = RPCHandler(sockfd, NULL); /* might set server to FOLLOWER */
 			if(handlerResult.result == -1) {
 				printf("Error: RPC handler error for heartbeat in append entries\n");
 				return NULL;
@@ -505,7 +524,7 @@ void *AppendEntryThread(void *args) {
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
 		for(;;) {
-			handlerResult = RPCHandler(sockfd, master); /* might set server to FOLLOWER */
+			handlerResult = RPCHandler(sockfd, NULL); /* might set server to FOLLOWER */
 			if(handlerResult.result == -1) {
 				printf("Error: RPC handler error for heartbeat in append entries\n");
 				return NULL;
@@ -518,12 +537,14 @@ void *AppendEntryThread(void *args) {
 			}
 		}
 
-		followerNextIndex -= 1;
-		if(followerNextIndex < 1) {
-			printf("decremented follower next index to less than 1, setting to 1\n");
-			followerNextIndex = 1;
-		}
 		success = handlerResult.result;
+		if(!success) {
+			followerNextIndex -= 1;
+			if(followerNextIndex < 1) {
+				printf("decremented follower next index to less than 1, setting to 1\n");
+				followerNextIndex = 1;
+			}
+		}
 	}
 
 	nextIndex[followerId - 1] = logEntryIndex + 1;
@@ -990,6 +1011,7 @@ int main(int argc, char *argv[]) {
 							printf("Error: unknown command from user input\n");
 						}
 					}
+					free(userLine);
 				}
 
 				/* send + handle append entries rpc calls in parallel to each other server */
