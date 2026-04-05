@@ -130,10 +130,10 @@ void applyOldestLog() {
 /* For RPC req OR resp, if contains term T > current term, need to update term and set to FOLLOWER
  * return 1 if new term, 0 if not
  */
-int checkTerm(int term) {
+int checkTerm(int term, int forceChange) {
 	/* use mutex since called in threads */
 	pthread_mutex_lock(&termLock);
-	if (term > currentTerm) {
+	if (term > currentTerm || forceChange) {
 		currentTerm = term;
 		/* if term out of date, then server is a follower */
 		printf("Converting server to FOLLOWER\n");
@@ -312,7 +312,8 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				}
 			}
 			
-			checkTerm(ntohl(appendMsg.term)); /* will convert to FOLLOWER if new term */
+			int msgTerm = ntohl(appendMsg.term);
+			checkTerm(msgTerm, 0); /* will convert to FOLLOWER if new term */
 			RPCAppendReplyMsg replyMsg;
 			replyMsg.term = htonl(currentTerm); /* set term */
 			replyMsg.success = 0; /* default success to false */
@@ -322,6 +323,11 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 					handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg); /* may set success to true */
 					break;
 				case(CANDIDATE):
+					if(msgTerm == currentTerm) {
+						checkTerm(msgTerm, 1); /* force to FOLLOWER if APPEND MSG has equal term for candidate */
+						handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg); /* may set success to true */
+					}
+					break;
 				case(LEADER):
 					break;
 			}
@@ -368,7 +374,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				return result;
 			}
 
-			checkTerm(ntohl(appendReplyMsg.term)); /* will convert to FOLLOWER if new term */
+			checkTerm(ntohl(appendReplyMsg.term), 0); /* will convert to FOLLOWER if new term */
 			switch(serverStateType) {
 				case(FOLLOWER):
 				case(CANDIDATE):
@@ -395,7 +401,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				return result;
 			}
 
-			checkTerm(ntohl(voteMsg.term)); /* will convert to FOLLOWER if new term */
+			checkTerm(ntohl(voteMsg.term), 0); /* will convert to FOLLOWER if new term */
 			switch(serverStateType) {
 				case(FOLLOWER):
 				case(CANDIDATE):
@@ -446,7 +452,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				return result;
 			}
 
-			checkTerm(ntohl(voteReplyMsg.term)); /* will convert to FOLLOWER if new term */
+			checkTerm(ntohl(voteReplyMsg.term), 0); /* will convert to FOLLOWER if new term */
 			switch(serverStateType) {
 				case(FOLLOWER):
 					break;
@@ -996,7 +1002,7 @@ int main(int argc, char *argv[]) {
 				read_fds = stdin_fd;
 				tv.tv_sec = 0;
 				tv.tv_usec = 0;
-				check = select(STDIN + 1, &read_fds, NULL, NULL, &electionTimer);
+				check = select(STDIN + 1, &read_fds, NULL, NULL, &tv);
 				if(check == -1) {
 					perror("select: stdin read for leader");
 					exit(4);
