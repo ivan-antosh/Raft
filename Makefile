@@ -57,5 +57,5 @@ $(LIBLIST_DIR)/list_removers.o: $(LIBLIST_DIR)/list_removers.c $(LIBLIST_DIR)/li
 
 # clean
 clean:
-	rm -rf *.o *.a $(LIBLIST_DIR)/*.o $(LIBLIST_DIR)/*.a server
+	rm -rf *.o *.a $(LIBLIST_DIR)/*.o $(LIBLIST_DIR)/*.a server proxy
 
