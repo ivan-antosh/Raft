@@ -33,6 +33,11 @@ typedef struct {
 	int leaderId;
 } AppendEntryThreadArgs;
 
+typedef struct {
+	int sockfd;
+	int id;
+} RequestVoteThreadArgs;
+
 /* STATE INFO */
 
 /* persistent on all servers */
@@ -526,6 +531,24 @@ void *AppendEntryThread(void *args) {
 	return NULL;
 }
 
+/* Thread wrapper function to call RequestVote */
+void *RequestVoteThread(void *args) {
+	RequestVoteThreadArgs *threadArgs = (RequestVoteThreadArgs *)args;
+	int sockfd = threadArgs->sockfd;
+	int candidateId = threadArgs->id;
+
+	int term = currentTerm;
+	int lastLogIndex = logEntryIndex;
+	int lastLogTerm = logEntryIndex > 0 ? logEntries[logEntryIndex].term : 0;
+
+	if(RequestVote(sockfd, term, candidateId, lastLogIndex, lastLogTerm) == -1) {
+		printf("Error: request vote\n");
+		return NULL;
+	}
+
+	return NULL;
+}
+
 /* get in addr from sock addr */
 void *get_in_addr(struct sockaddr *sa) {
 	if(sa->sa_family == AF_INET) {
@@ -850,34 +873,31 @@ int main(int argc, char *argv[]) {
 
 				/* Create threads */
 				pthread_t threads[NUM_SERVERS-1];
-				RequestVoteArgs *threadArgs = (RequestVoteArgs *)malloc(sizeof(RequestVoteArgs) * (NUM_SERVERS - 1));
+				RequestVoteThreadArgs *threadArgs = (RequestVoteThreadArgs *)malloc(sizeof(RequestVoteThreadArgs) * (NUM_SERVERS - 1));
 				if(threadArgs == NULL) {
 					printf("Error: failed to alloc request vote args\n");
 					perror("malloc");
 					break;
 				}
-
+				int threadCreated[NUM_SERVERS - 1] = {0};
 				/* Send conccurent RequestVote request to all servers */
 				for (int i = 0; i < (NUM_SERVERS-1); i++){
 					if (servers[i].sockfd == -1){
 						continue;
 					}
-					/* Allocate memory for thread aruguments */
 					threadArgs[i].sockfd = servers[i].sockfd;
-					threadArgs[i].msg.term = currentTerm;
-					threadArgs[i].msg.candidateId = id;
-					threadArgs[i].msg.lastLogIndex = logEntryIndex;
-					if (logEntryIndex > 0) {
-						threadArgs[i].msg.lastLogTerm = logEntries[logEntryIndex].term;
-					} else {
-						threadArgs[i].msg.lastLogTerm = 0;
-					}
+					threadArgs[i].id = id;
 					if (pthread_create(&threads[i], NULL, RequestVoteThread, &threadArgs[i]) != 0) {
 						perror("Create request vote thread");
+						continue;
 					}
+					threadCreated[i] = 1;
 				}
 				/* wait until all threads finished */
 				for (i = 0; i < NUM_SERVERS-1; i++) {
+					if(!threadCreated[i]) {
+						continue;
+					}
 					pthread_join(threads[i], NULL);
 				}
 				/* Release thread argument memory */
@@ -988,17 +1008,27 @@ int main(int argc, char *argv[]) {
 					perror("Allocate memory for append entries thread args (leader)");
 					break;
 				}
+
+				int appendEntriesThreadCreated[NUM_SERVERS - 1] = {0};
 				for(int i = 0; i < (NUM_SERVERS-1); i++) {
+					if(servers[i].sockfd == -1) {
+						continue;
+					}
 					appendEntriesThreadArgs[i].sockfd = servers[i].sockfd;
 					appendEntriesThreadArgs[i].followerId = servers[i].id;
 					appendEntriesThreadArgs[i].leaderId = id;
 					/* create thread */
 					if (pthread_create(&appendEntriesThreads[i], NULL, AppendEntryThread, &appendEntriesThreadArgs[i]) != 0) {
 						perror("Create thread");
+						continue;
 					}
+					appendEntriesThreadCreated[i] = 1;
 				}
 				/* wait until all threads finished */
 				for (i = 0; i < NUM_SERVERS-1; i++) {
+					if(!appendEntriesThreadCreated[i]) {
+						continue;
+					}
 					pthread_join(appendEntriesThreads[i], NULL);
 				}
 				/* Release thread argument memory */

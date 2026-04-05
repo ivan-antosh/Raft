@@ -32,28 +32,6 @@ void StateEntryFree(void *itemToBeFreed) {
 	free(state);
 }
 
-/* Sends SIGKILL to all threads inside an array of pthread_t 
- * Return: 0 on success and 1 on failure
- */
-int killThreads(pthread_t *threads, RequestVoteArgs **threadArgs, int threadCount) {
-	for (int i = 0; i < threadCount; i++) {
-		/* if thread is still running, cancel it */
-		if(pthread_kill(threads[i], 0) == 0) {
-			if (pthread_cancel(threads[i]) != 0) {
-				perror("pthread_cancel");
-				return 1;
-			};
-			pthread_join(threads[i], NULL); /* make sure to join on cancelled thread */
-		}
-		/* free args */
-		if(threadArgs[i] != NULL) {
-			free(threadArgs[i]);
-			threadArgs[i] = NULL;
-		}
-	}
-	return 0;
-}
-
 /* rec totalBytesToRec amount of bytes, convert to LogEntry list and return */
 LogEntry *getMsgEntries(int s, size_t totalBytesToRec) {
 	size_t bytesRec = 0;

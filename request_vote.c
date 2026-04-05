@@ -6,19 +6,8 @@
 
 #include "request_vote.h"
 
-/* Thread wrapper function to call RequestVote */
-void *RequestVoteThread(void *ptr) {
-	RequestVoteArgs *args = (RequestVoteArgs *) ptr;
-
-	if(RequestVote(args->sockfd, args->msg.term, args->msg.candidateId, args->msg.lastLogIndex, args->msg.lastLogTerm) == -1) {
-		printf("Error: request vote\n");
-	}
-
-	return NULL;
-}
-
 /* RPC Call - used to request leadership vote from other servers */
-int RequestVote(int sockfd, uint32_t term, uint32_t candidateId, uint32_t lastLogIndex, uint32_t lastLogTerm) {
+int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int lastLogTerm) {
 	RPCHeader header;
 	header.rpcMsgType = htons(MSG);
 	header.rpcType = htons(VOTE);

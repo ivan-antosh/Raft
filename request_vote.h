@@ -4,12 +4,6 @@
 #include <types.h>
 
 /* Stores the arguments being passed to the RequestVote threads */
-typedef struct {
-	int sockfd;
-	RPCVoteMsg msg;
-} RequestVoteArgs;
-
-void *RequestVoteThread(void *ptr);
-int RequestVote(int sockfd, uint32_t term, uint32_t candidateId, uint32_t lastLogIndex, uint32_t lastLogTerm);
+int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int lastLogTerm);
 
 #endif

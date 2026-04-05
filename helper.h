@@ -15,8 +15,6 @@ typedef struct {
 int StateEntryKeyComparator(void *item, void *comparisonArg);
 void StateEntryFree(void *itemToBeFreed);
 
-int killThreads(pthread_t *threads, RequestVoteArgs **threadArgs, int threadCount);
-
 LogEntry *getMsgEntries(int s, size_t totalBytesToRec);
 int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend);
 
