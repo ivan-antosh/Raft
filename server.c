@@ -549,14 +549,6 @@ void *RequestVoteThread(void *args) {
 	return NULL;
 }
 
-/* get in addr from sock addr */
-void *get_in_addr(struct sockaddr *sa) {
-	if(sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
 /* accept an incoming connection
  * if the listener has an incoming connection, connect to it and
  * receive an incoming handshake message to verify connection id

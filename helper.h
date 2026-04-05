@@ -24,5 +24,6 @@ LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries);
 int mapHeaderToInt(RPCMsgType msgType, RPCType type);
 
 int get_listener_socket(char *portNum);
+void *get_in_addr(struct sockaddr *sa);
 
 #endif
