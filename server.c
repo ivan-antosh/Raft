@@ -68,6 +68,7 @@ int matchIndex[NUM_SERVERS]; /* init to 0 */
 
 /* OTHER INFO */
 ServerInfo servers[NUM_SERVERS - 1];
+pthread_mutex_t serversLock = PTHREAD_MUTEX_INITIALIZER; /* lock for current term */
 
 /* Double log entry space */
 void increaseLogEntries() {
@@ -241,7 +242,8 @@ void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
  * Input:
  * 	s: sockfd to rec from
  *  master: master set of sockfds
- * Return: 1 if rec Append type, 0 if rec non-Append type, -1 on error
+ * Return: RPCHandlerResult, where headerInt is int representation of message type handled (based on mapHeaderToInt()),
+ * 	and result is result int from RPC (-1 when failed)
  */
 RPCHandlerResult RPCHandler(int s, fd_set *master) {
 	int check;
@@ -332,22 +334,20 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 			headerReply.rpcMsgType = htons(REPLY);
 			headerReply.rpcType = htons(APPEND);
 			if(send(s, &headerReply, sizeof(headerReply), 0) == -1) {
-				printf("Error: failed header send on rpc append reply\n");
-				perror("send");
-				close(s);
-				if(master) {
-					FD_CLR(s, master);
+				if(errno != EPIPE) {
+					printf("Error: failed header send on rpc append reply\n");
+					perror("send");
 				}
+				close_connection(s, master, servers, &serversLock);
 				result.result = -1;
 				return result;
 			}
 			if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
-				printf("Error: failed msg send on rpc append reply\n");
-				perror("send");
-				close(s);
-				if(master) {
-					FD_CLR(s, master);
+				if(errno != EPIPE) {
+					printf("Error: failed msg send on rpc append reply\n");
+					perror("send");
 				}
+				close_connection(s, master, servers, &serversLock);
 				result.result = -1;
 				return result;
 			}
@@ -410,22 +410,20 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 					headerReply.rpcMsgType = htons(REPLY);
 					headerReply.rpcType = htons(VOTE);
 					if(send(s, &headerReply, sizeof(headerReply), 0) == -1) {
-						printf("Error: failed header send on rpc vote reply\n");
-						perror("send");
-						close(s);
-						if(master) {
-							FD_CLR(s, master);
+						if(errno != EPIPE) {
+							printf("Error: failed header send on rpc vote reply\n");
+							perror("send");
 						}
+						close_connection(s, master, servers, &serversLock);
 						result.result = -1;
 						return result;
 					}
 					if(send(s, &replyMsg, sizeof(replyMsg), 0) == -1) {
-						printf("Error: failed msg send on rpc vote reply\n");
-						perror("send");
-						close(s);
-						if(master) {
-							FD_CLR(s, master);
+						if(errno != EPIPE) {
+							printf("Error: failed msg send on rpc vote reply\n");
+							perror("send");
 						}
+						close_connection(s, master, servers, &serversLock);
 						result.result = -1;
 						return result;
 					}
@@ -483,14 +481,19 @@ void *AppendEntryThread(void *args) {
 	int leaderId = threadArgs->leaderId;
 
 	RPCHandlerResult handlerResult;
+	int check;
 
 	int followerNextIndex = nextIndex[followerId - 1];
 	if(logEntryIndex < followerNextIndex) {
 		int prevLogTerm = (followerNextIndex > 1) ? logEntries[followerNextIndex - 1].term : 0;
 		/* Send heartbeat if no log entries to send (default values, w/ commitIndex) */
-		if(AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, prevLogTerm,
-			NULL, 0, commitIndex) == -1) {
-			printf("Error: sending heartbeat in append entry thread for server %d\n", followerId);
+		check = AppendEntries(sockfd, currentTerm, leaderId, followerNextIndex - 1, prevLogTerm,
+			NULL, 0, commitIndex);
+		if(check < 0) {
+			if(check == -1) {
+				printf("Error: sending heartbeat in append entry thread for server %d\n", followerId);
+			}
+			close_connection(sockfd, NULL, servers, &serversLock);
 			return NULL;
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
@@ -517,9 +520,13 @@ void *AppendEntryThread(void *args) {
 
 		int numEntriesToSend = logEntryIndex - followerNextIndex + 1;
 		int prevLogTerm = (followerNextIndex > 1) ? logEntries[followerNextIndex - 1].term : 0;
-		if(AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, prevLogTerm,
-			&logEntries[followerNextIndex], numEntriesToSend, commitIndex) == -1) {
-			printf("Error: sending append entries in append entries thread for server %d\n", followerId);
+		check = AppendEntries(sockfd, currentTermSnap, leaderId, followerNextIndex - 1, prevLogTerm,
+			&logEntries[followerNextIndex], numEntriesToSend, commitIndex);
+		if(check < 0) {
+			if(check == -1) {
+				printf("Error: sending append entries in append entries thread for server %d\n", followerId);
+			}
+			close_connection(sockfd, NULL, servers, &serversLock);
 			return NULL;
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
@@ -562,8 +569,12 @@ void *RequestVoteThread(void *args) {
 	int lastLogIndex = logEntryIndex;
 	int lastLogTerm = logEntryIndex > 0 ? logEntries[logEntryIndex].term : 0;
 
-	if(RequestVote(sockfd, term, candidateId, lastLogIndex, lastLogTerm) == -1) {
-		printf("Error: request vote\n");
+	int check = RequestVote(sockfd, term, candidateId, lastLogIndex, lastLogTerm);
+	if(check < 0) {
+		if(check == -1) {
+			printf("Error: request vote\n");
+			close_connection(sockfd, NULL, servers, &serversLock);
+		}
 		return NULL;
 	}
 
@@ -684,6 +695,8 @@ int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax) {
 }
 
 int main(int argc, char *argv[]) {
+	signal(SIGPIPE, SIG_IGN); /* have sends return -1 instead of killing process when socket is closed */
+
 	fd_set master, stdin_fd, read_fds, write_fds;
 	int fdmax;
 	int listener;
@@ -767,7 +780,7 @@ int main(int argc, char *argv[]) {
 		if(neededConnections <= 0) {
 			break; /* got all connections */
 		}
-		sleep(2); /* TODO: idk like change or something */
+		sleep(1);
 		printf("trying connections...\n");
 		
 		/* attempt to connect to higher id servers */
@@ -778,7 +791,7 @@ int main(int argc, char *argv[]) {
 			}
 			check = connect_to_server(&servers[i], &master, &fdmax);
 			if (check == -1) {
-				printf("Error: connect to neighbour\n");
+				printf("Error: connect to server\n");
 				return 1;
 			} else if (check == 1) {
 				neededConnections -= 1;
@@ -796,14 +809,13 @@ int main(int argc, char *argv[]) {
 		}
 		for(i = 0; i <= fdmax; i++) {
 			if(FD_ISSET(i, &read_fds)) {
+				/* only check listener */
 				if(i == listener) {
 					check = handle_new_connection(i, &master, &fdmax);
 					printf("check: %d\n", check);
 					if(check == 1) {
 						neededConnections -= 1;
 					}
-				} else {
-					perror("Unknown read fd??");
 				}
 			}
 		}
@@ -828,6 +840,19 @@ int main(int argc, char *argv[]) {
 	stateMachine = ListCreate();
 
 	for (;;) {
+		/* attempt to connect to higher id servers that have lost connection */
+		for(i = 0; i < (NUM_SERVERS - 1); i++) {
+			/* for race condition, only attempt connection for higher ids, listen for lower ids */
+			if(servers[i].id < id || servers[i].sockfd != -1) {
+				continue;
+			}
+			check = connect_to_server(&servers[i], &master, &fdmax);
+			if (check == -1) {
+				printf("Error: connect to server\n");
+				return 1;
+			}
+		}
+
 		/* for all server states: */
 		/* if commit index is larger than last applied, increase last applied and commit new log */
 		while(commitIndex > lastApplied) {

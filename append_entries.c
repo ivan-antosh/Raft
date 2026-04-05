@@ -4,6 +4,7 @@
 #include <types.h>
 #include <arpa/inet.h>
 #include <helper.h>
+#include <errno.h>
 
 #include <append_entries.h>
 
@@ -28,16 +29,20 @@ int AppendEntries(int sockfd, int term, int leaderId, int prevLogIndex, int prev
 	msg.leaderCommit = htonl(leaderCommit);
 
 	/* send RPC header */
-	check = send(sockfd, &header, sizeof(header), 0);
-	if(check <= 0) {
+	if(send(sockfd, &header, sizeof(header), 0) == -1) {
+		if(errno == EPIPE) {
+			return -2;
+		}
 		printf("Error: did not send append entries header\n");
 		perror("send");
 		return -1;
 	}
 
 	/* send RPC message */
-	check = send(sockfd, &msg, sizeof(msg), 0);
-	if(check <= 0) {
+	if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
+		if(errno == EPIPE) {
+			return -2;
+		}
 		printf("Error: did not send append entries msg\n");
 		perror("send");
 		return -1;
@@ -45,8 +50,8 @@ int AppendEntries(int sockfd, int term, int leaderId, int prevLogIndex, int prev
 	if(numEntries > 0) {
 		int totalBytesToSend = numEntries * sizeof(LogEntry);
 		check = sendMsgEntries(sockfd, entries, totalBytesToSend);
-		if(check == -1) {
-			return -1;
+		if(check < 0) {
+			return check;
 		}
 	}
 	return 0;

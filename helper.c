@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <pthread.h>
 #include <sys/socket.h>
+#include <errno.h>
 
 #include <helper.h>
 
@@ -63,7 +64,10 @@ int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend) {
     
 	while(bytesSent < totalBytesToSend) {
 		check = send(s, (buffer + bytesSent), (totalBytesToSend - bytesSent), 0);
-		if(check <= 0) {
+		if(check == -1) {
+			if(errno == EPIPE) {
+				return -2;
+			}
 			printf("Error: did not send enough bytes for entries\n");
 			return -1;
 		}
@@ -228,4 +232,31 @@ void *get_in_addr(struct sockaddr *sa) {
 		return &(((struct sockaddr_in*)sa)->sin_addr);
 	}
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+/* close sockfd connection, remove from servers info */
+void close_connection(int s, fd_set *master, ServerInfo *serverInfo, pthread_mutex_t *lock) {
+	if(s == -1) {
+		printf("Error: close connection on sockfd -1\n");
+		return;
+	}
+	if(!serverInfo) {
+		printf("Error: close connection using invalid serverInfo\n");
+		return;
+	}
+
+	pthread_mutex_lock(lock);
+	for(int i = 0; i < (NUM_SERVERS - 1); i++) {
+		if(serverInfo[i].sockfd == s) {
+			serverInfo[i].sockfd = -1;
+			break;
+		}
+	}
+	close(s);
+	if(master) {
+		FD_CLR(s, master);
+	}
+	pthread_mutex_unlock(lock);
+
+	return;
 }

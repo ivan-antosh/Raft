@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include "request_vote.h"
 
@@ -13,6 +14,9 @@ int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int las
 	header.rpcType = htons(VOTE);
 	/* send header */
 	if(send(sockfd, &header, sizeof(header), 0) == -1) {
+		if(errno == EPIPE) {
+			return -2;
+		}
 		perror("RequestVote header - send");
 		return -1;
 	}
@@ -24,6 +28,9 @@ int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int las
 	msg.lastLogTerm = htonl(lastLogTerm);
 	/* send message */
 	if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
+		if(errno == EPIPE) {
+			return -2;
+		}
 		perror("RequestVote msg - send");
 		return -1;
 	}
