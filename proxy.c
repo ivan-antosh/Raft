@@ -10,8 +10,64 @@
 #include "helper.h"
 #include "types.h"
 
+/* Read a complete Raft RPC (header + body) from fd into buffer.
+ * Returns number of bytes read on success, <=0 on failure/partial/close. */
+static int read_full_rpc(int fd, char *buffer, size_t *out_len) {
+    int pos = 0;
+    const size_t MAX_RPC = 1024 * 64; /* generous; adjust for huge logs */
+
+    /* 1. Header */
+    int check = recv(fd, buffer, sizeof(RPCHeader), 0);
+    if (check != sizeof(RPCHeader)) return check;
+    pos += check;
+
+    RPCHeader *header = (RPCHeader *)buffer;
+    uint16_t msgType = ntohs(header->rpcMsgType);
+    uint16_t rpcType   = ntohs(header->rpcType);
+
+    /* 2. Body */
+    if (rpcType == APPEND && msgType == MSG) {
+        /* RPCAppendMsg + variable entries */
+        check = recv(fd, buffer + pos, sizeof(RPCAppendMsg), 0);
+        if (check != sizeof(RPCAppendMsg)) return check;
+        pos += check;
+
+        RPCAppendMsg *appendMsg = (RPCAppendMsg *)(buffer + sizeof(RPCHeader));
+        uint32_t numEntries = ntohl(appendMsg->entriesLen);
+        size_t entriesBytes = (size_t)numEntries * sizeof(LogEntry);
+
+        if (entriesBytes > 0) {
+            if (pos + entriesBytes > MAX_RPC) {
+                printf("[Proxy] RPC too large\n");
+                return -1;
+            }
+            check = recv(fd, buffer + pos, entriesBytes, 0);
+            if (check != (int)entriesBytes) return check;
+            pos += check;
+        }
+    } else if (rpcType == APPEND && msgType == REPLY) {
+        check = recv(fd, buffer + pos, sizeof(RPCAppendReplyMsg), 0);
+        if (check != sizeof(RPCAppendReplyMsg)) return check;
+        pos += check;
+    } else if (rpcType == VOTE && msgType == MSG) {
+        check = recv(fd, buffer + pos, sizeof(RPCVoteMsg), 0);
+        if (check != sizeof(RPCVoteMsg)) return check;
+        pos += check;
+    } else if (rpcType == VOTE && msgType == REPLY) {
+        check = recv(fd, buffer + pos, sizeof(RPCVoteReplyMsg), 0);
+        if (check != sizeof(RPCVoteReplyMsg)) return check;
+        pos += check;
+    } else {
+        printf("[Proxy] unknown RPC type %d and %d\n", rpcType, msgType);
+        return -1;
+    }
+
+    *out_len = pos;
+    return (int)pos;
+}
+
 /* get the percent chance a packet gets dropped by the proxy */
-int dropProbability() {
+int drop_probability() {
 	const char *dropProbEnv = getenv("DROP_PROBABILITY");
 	if(dropProbEnv != NULL)
 		return atoi(dropProbEnv);
@@ -26,7 +82,7 @@ int dropProbability() {
 int drop_traffic(int source, int destination) {
 	int n = rand() % 100;
 
-	if (n < dropProbability()) {
+	if (n < drop_probability()) {
 		printf("\033[31m[DROP]\033[0m Dropping traffic | src: %d -> dest: %d\n", source, destination);
 		return 1;
 	}
@@ -107,8 +163,8 @@ void *handle_connection(void *arg) {
 
 		/* Traffic going TO the target Raft server */
 		if (fds[0].revents & POLLIN) {
-			int bytes = recv(args->client_fd, buffer, BUFFER_SIZE, 0);
-			if (bytes <= 0) {
+			size_t bytes;
+			if (read_full_rpc(args->client_fd, buffer, &bytes) <= 0){
 				break;
 			}
 			if(!drop_traffic(args->client_fd, server_fd)) {
@@ -121,8 +177,8 @@ void *handle_connection(void *arg) {
 
 		/* Traffic going FROM the target Raft server */
 		if (fds[1].revents & POLLIN) {
-			int bytes = recv(server_fd, buffer, BUFFER_SIZE, 0);
-			if (bytes <= 0) {
+			size_t bytes;
+			if (read_full_rpc(server_fd, buffer, &bytes) <= 0) {
 				break;
 			}
 			if(!drop_traffic(args->client_fd, server_fd)) {
@@ -152,7 +208,7 @@ int main(int argc, char *argv[]) {
 
 	srand(time(NULL));
 
-	printf("DROP_PROBABILITY: %d%%\n", dropProbability());
+	printf("DROP_PROBABILITY: %d%%\n", drop_probability());
 
 	/* Setup listening socket for each route */
 	for (int i = 0; i < NUM_SERVERS; i++) {
