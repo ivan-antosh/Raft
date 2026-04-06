@@ -17,8 +17,9 @@ if [ "$1" == "-proxy" ]; then
 		echo "Error: -proxy flag requires a drop probability"
 		echo "./setup.bash -proxy <Drop Probability>"
 		exit 1
-	elif [ "$2" -lt 0 ] && [ "$2" -gt 100 ]; then
+	elif [ "$2" -lt 0 ] || [ "$2" -gt 100 ]; then
 		echo "Drop Probability must be between 0 and 100"
+		exit 2
 	else
 		DROP_PROBABILITY=$2
 	fi
