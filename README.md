@@ -17,13 +17,13 @@ Make sure tmux is installed before running. Use:
 - Ctrl + D to delete the terminal window
 
 Options with setup.bash:
-1. -proxy
-uses proxy servers for testing with
+1. -proxy \<Drop Probability>  
+Sets up a proxy server that emulates an unreliable network connection between the raft servers with a \<Drop Probability>% chance of dropping network traffic.
 
 To run manually:
 
 for each server, run (this implementation requires exactly 5 servers):
-> ./server <id> <port number> (<id> <host name> <port number>) * (5 servers)
+> ./server \<id> \<port number> (\<id> \<host name> \<port number>) * (5 servers)
 each server must use a unique id, in the range of 1-5 (inclusive)
 
 # Use
