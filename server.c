@@ -1047,7 +1047,6 @@ int main(int argc, char *argv[]) {
 						}
 
 						/* convert input to command, add to local log */
-						/* TODO: error checking, also prolly regex */
 						if(logEntryIndex + 1 >= logEntriesSize) {
 							increaseLogEntries(0);
 						}
@@ -1057,24 +1056,44 @@ int main(int argc, char *argv[]) {
 						int gotCommand = 1;
 						if(strcmp(token, "put") == 0) {
 							entry->cmd.type = PUT;
-							token = strtok(NULL, " ");
-							strcpy(entry->cmd.x, token);
-							token = strtok(NULL, " ");
-							int y = atoi(token);
-							entry->cmd.y = y;
+							token = strtok(NULL, " "); /* Get key token */
+							if (token == NULL) {
+								printf("Invalid Command: Missing key\n");
+								gotCommand = 0;
+							} else {
+								strcpy(entry->cmd.x, token);
+							}
+							token = strtok(NULL, " "); /* Get value token */
+							if (token == NULL){
+								printf("Invalid Command: Missing value\n");
+								gotCommand = 0;
+							} else {
+								int y = atoi(token);
+								entry->cmd.y = y;
+							}
 						} else if(strcmp(token, "get") == 0) {
 							entry->cmd.type = GET;
-							token = strtok(NULL, " ");
-							strcpy(entry->cmd.x, token);
-							entry->cmd.y = 0;
+							token = strtok(NULL, " "); /* Get key token */
+							if (token == NULL) {
+								printf("Invalid Command: Missing key\n");
+								gotCommand = 0;
+							} else {
+								strcpy(entry->cmd.x, token);
+								entry->cmd.y = 0;
+							}
 						} else if(strcmp(token, "del") == 0) {
 							entry->cmd.type = DEL;
-							token = strtok(NULL, " ");
-							strcpy(entry->cmd.x, token);
-							entry->cmd.y = 0;
+							token = strtok(NULL, " "); /* Get key token */
+							if (token == NULL) {
+								printf("Invalid Command: Missing key\n");
+								gotCommand = 0;
+							} else {
+								strcpy(entry->cmd.x, token);
+								entry->cmd.y = 0;
+							}
 						} else {
 							gotCommand = 0;
-							printf("Error: unknown command from user input\n");
+							printf("Invalid Command: unknown command from user input\n");
 						}
 						if(gotCommand) {
 							logEntryIndex += 1;
