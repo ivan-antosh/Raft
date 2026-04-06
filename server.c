@@ -309,9 +309,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				}
 			}
 			/* TODO: remove, just for checking */
-			if(entries == NULL) {
-				printf("Entries: NULL\n");
-			} else {
+			if(entries != NULL) {
 				for(int i = 0; i < numEntries; i++) {
 					printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
 				}
@@ -876,8 +874,6 @@ int main(int argc, char *argv[]) {
 		/* server state specific logic: */
 		switch (serverStateType) {
 			case FOLLOWER:
-				printf("Server is in the follower state\n");
-
 				/* TODO: Respond to RPC from candidates and leaders */
 				int resetTimer = 0;
 				read_fds = master;
@@ -913,8 +909,6 @@ int main(int argc, char *argv[]) {
 
 				break;
 			case CANDIDATE:
-				printf("Server has entered CANDIDATE state\n");
-
 				/* start election */
 				currentTerm += 1;
 				votedFor = id;
@@ -1000,8 +994,6 @@ int main(int argc, char *argv[]) {
 				done_reading:
 					break;
 			case LEADER:
-				printf("Server is in the leader state\n");
-
 				/* read client */
 				/* TODO: implement actual client, just stdin for now */
 				read_fds = stdin_fd;
