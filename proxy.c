@@ -20,9 +20,9 @@ int drop_traffic(int source, int destination) {
 
 	if (n < DROP_PROBABILITY) {
 		printf("\033[31m[DROP]\033[0m Dropping traffic | src: %d -> dest: %d\n", source, destination);
-		return 0;
+		return 1;
 	}
-	return 1;
+	return 0;
 }
 
 /* Thread to handle a single bidirectional traffic for a single established connection */
