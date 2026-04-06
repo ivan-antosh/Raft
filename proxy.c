@@ -70,6 +70,17 @@ void *handle_connection(void *arg) {
 
 	freeaddrinfo(servinfo); // done with this
 
+	/* Handle Raft server handshake */
+	HandshakeMsg msg;
+	if((recv(args->client_fd, &msg, sizeof(msg), 0)) == -1) {
+		perror("Handshake - recv");
+		return NULL;
+	}
+	if((send(server_fd, &msg, sizeof(msg), 0)) == -1) {
+		perror("Handshake - send");
+		return NULL;
+	}
+
 	printf("[Proxy] Link established: target_port %s\n", args->target_port);
 
 	struct pollfd fds[2];
