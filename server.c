@@ -810,7 +810,7 @@ int main(int argc, char *argv[]) {
 	FD_SET(STDIN, &stdin_fd);
 
 	/* Connect to all servers before continuing */
-	int neededConnections = NUM_SERVERS - 1;
+	int neededConnections = (NUM_SERVERS / 2) + 1;
 	for(;;) {
 		printf("needed connections: %d\n", neededConnections);
 		if(neededConnections <= 0) {
