@@ -671,7 +671,7 @@ int handle_new_connection(int listener, fd_set *master, int *fdmax)
  * if connects, then add server info vals
  * returns -1 on failure, 0 on no connection, 1 on connection
  */
-int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax) {
+int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax, int id) {
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
@@ -726,7 +726,7 @@ int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax) {
 
     /* send handshake message to connected server, so it knows which server it connected to */
     HandshakeMsg msg;
-    msg.id = htonl(serverInfo->id);
+    msg.id = htonl(id);
     if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
         perror("send");
         exit(1);
@@ -825,7 +825,7 @@ int main(int argc, char *argv[]) {
 			if((servers[i].id < id && !proxyEnabled()) || servers[i].sockfd != -1) {
 				continue;
 			}
-			check = connect_to_server(&servers[i], &master, &fdmax);
+			check = connect_to_server(&servers[i], &master, &fdmax, id);
 			if (check == -1) {
 				printf("Error: connect to server\n");
 				return 1;
@@ -889,7 +889,7 @@ int main(int argc, char *argv[]) {
 			if((servers[i].id < id && !proxyEnabled()) || servers[i].sockfd != -1) {
 				continue;
 			}
-			check = connect_to_server(&servers[i], &master, &fdmax);
+			check = connect_to_server(&servers[i], &master, &fdmax, id);
 			if (check == -1) {
 				printf("Error: connect to server\n");
 				return 1;
