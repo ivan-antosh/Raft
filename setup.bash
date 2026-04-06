@@ -12,6 +12,7 @@ PROXY_FLAG=false
 if [ "$1" == "-proxy" ]; then
 	PROXY_FLAG=true
 	PROXY_ENABLED=1
+	# check for DROP_PROBABILITY after -proxy flag
 	if [ -z "$2" ]; then
 		echo "Error: -proxy flag requires a drop probability"
 		echo "./setup.bash -proxy <Drop Probability>"
@@ -25,10 +26,12 @@ else
 	PROXY_ENABLED=0
 fi
 
+# gets formated proxy args
 getProxy() {
 	echo "$((PROXY_PORT_NUM + $1))" "$HOST_NAME" "$((SERVER_PORT_NUM + $1))"
 }
 
+# gets formated server args
 getServer() {
 	id=$(((($1 + $2) % 5) + 1))
 	if $PROXY_FLAG; then
@@ -49,10 +52,9 @@ if $PROXY_FLAG; then
 	tmux send-keys -t $SESSION:1 "$CMD" C-m
 
 	echo "proxy server $i started with pid $!"
-	# for ((i = 1; i < (NUM_SERVERS + 1); i++)); do
-	# done
 fi
 
+# Run each server in a individiual window
 for ((i = 1; i < (NUM_SERVERS + 1); i++)); do
 	tmux new-window -t $SESSION -n "server$i"
 
