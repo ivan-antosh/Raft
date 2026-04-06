@@ -168,7 +168,7 @@ int checkTerm(int term, int forceChange, int id) {
 /* handle an append message */
 void handleAppendMsg(RPCAppendMsg *msg, LogEntry *entries, int numEntries, RPCAppendReplyMsg *replyMsg, int id) {
 	int term = ntohl(msg->term);
-	/* int leaderId = ntohl(msg->id);*/ /* TODO: for when we do client redirection */
+	/* int leaderId = ntohl(msg->id);*/ /* used for client redirection */
 	int prevLogIndex = ntohl(msg->prevLogIndex);
 	int prevLogTerm = ntohl(msg->prevLogTerm);
 	int leaderCommit = ntohl(msg->leaderCommit);
@@ -338,12 +338,6 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 					return result;
 				}
 			}
-			/* TODO: remove, just for checking */
-			if(entries != NULL) {
-				for(int i = 0; i < numEntries; i++) {
-					printf("Entry %d: x: %s, y: %d\n", i, entries[i].cmd.x, entries[i].cmd.y);
-				}
-			}
 			
 			int msgTerm = ntohl(appendMsg.term);
 			checkTerm(msgTerm, 0, id); /* will convert to FOLLOWER if new term */
@@ -416,7 +410,6 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 				case(CANDIDATE):
 					break;
 				case(LEADER):
-					/* TODO: return success */
 					result.result = ntohl(appendReplyMsg.success);
 					break;
 			}
@@ -862,13 +855,6 @@ int main(int argc, char *argv[]) {
 			}
 		}
 	}
-	
-	/* TODO: remove, just to check */
-	printf("CONNECTED!\n");
-	printf("id: %d, portNum: %d\n", id, portNum);
-	for(i = 0; i < NUM_SERVERS-1; i++) {
-		printf("id: %d, portNum: %d, sockfd: %d, hostname: %s\n", servers[i].id, servers[i].portNum, servers[i].sockfd, servers[i].hostname);
-	}
 
 	/* init timers */
 	srand(time(NULL) ^ id);
@@ -917,7 +903,6 @@ int main(int argc, char *argv[]) {
 		/* server state specific logic: */
 		switch (serverStateType) {
 			case FOLLOWER:
-				/* TODO: Respond to RPC from candidates and leaders */
 				int resetTimer = 0;
 				read_fds = master;
 				check = select(fdmax + 1, &read_fds, NULL, NULL, &electionTimer);
@@ -1038,7 +1023,6 @@ int main(int argc, char *argv[]) {
 					break;
 			case LEADER:
 				/* read client */
-				/* TODO: implement actual client, just stdin for now */
 				read_fds = stdin_fd;
 				tv.tv_sec = 0;
 				tv.tv_usec = 0;
@@ -1047,7 +1031,6 @@ int main(int argc, char *argv[]) {
 					perror("select: stdin read for leader");
 					exit(4);
 				} else if(check) {
-					printf("Got user input\n"); /* TODO: remove */
 					char *userLine = NULL;
 					size_t userLen = 0;
 					int numRead;
@@ -1168,7 +1151,6 @@ int main(int argc, char *argv[]) {
 			default:
 				perror("Invalid server state");
 		}
-		// sleep(2); /* TODO: remove */
 	}
 
 	return 0;
