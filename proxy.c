@@ -31,7 +31,6 @@ void *handle_connection(void *arg) {
 	int server_fd;
 	int rv;
 	struct addrinfo hints, *servinfo, *p;
-	char s[INET6_ADDRSTRLEN];
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
@@ -48,7 +47,6 @@ void *handle_connection(void *arg) {
 			perror("client: socket");
 			continue;
 		}
-		inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof(s));
 
 		if(connect(server_fd, p->ai_addr, p->ai_addrlen) == -1) {
 			close(server_fd);
@@ -62,10 +60,8 @@ void *handle_connection(void *arg) {
 		return NULL;
 	}
 
-	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof(s));
-
 	freeaddrinfo(servinfo); // done with this
-	
+
 	printf("[Proxy] Link established: target_port %s\n", args->target_port);
 
 	struct pollfd fds[2];
