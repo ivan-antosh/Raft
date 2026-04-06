@@ -20,6 +20,7 @@
 #include "list_lib/list.h"
 
 #define STDIN 0
+#define DEFAULT_LOG_SIZE 10
 
 typedef struct {
 	int headerInt;
@@ -47,10 +48,8 @@ pthread_mutex_t termLock = PTHREAD_MUTEX_INITIALIZER; /* lock for current term *
 int votedFor = -1;
 /* log entries, command for state machine and term when entry received by leader */
 LogEntry *logEntries; /* first index is 1 */
-int logEntriesSize = 10; /* size of logEntries, increases when runs out of space */
+int logEntriesSize = DEFAULT_LOG_SIZE; /* size of logEntries, increases when runs out of space */
 int logEntryIndex = 0; /* index of last log in logEntries, zero indicate no logs, first index at 1 */
-/* doubly linked list of state machine entries, each are a key value pair */
-List *stateMachine;
 
 /* volatile on all servers */
 /* index of highest log entry known to be committed */
@@ -59,6 +58,8 @@ int commitIndex = 0;
 int lastApplied = 0;
 /* current state of the server, follower, candidate, leader */
 ServerStateType serverStateType = FOLLOWER;
+/* doubly linked list of state machine entries, each are a key value pair */
+List *stateMachine;
 
 /* volatile on leaders (reinitialized after election)*/
 /* index of next log entry to send for each server */
@@ -68,11 +69,16 @@ int matchIndex[NUM_SERVERS]; /* init to 0 */
 
 /* OTHER INFO */
 ServerInfo servers[NUM_SERVERS - 1];
-pthread_mutex_t serversLock = PTHREAD_MUTEX_INITIALIZER; /* lock for current term */
+pthread_mutex_t serversLock = PTHREAD_MUTEX_INITIALIZER; /* lock for server info */
+pthread_mutex_t stateLock = PTHREAD_MUTEX_INITIALIZER; /* lock for writing to state */
 
-/* Double log entry space */
-void increaseLogEntries() {
-	logEntriesSize *= 2; /* double size */
+/* Double log entry space, or to given size */
+void increaseLogEntries(int size) {
+	if(size > 0) {
+		logEntriesSize = size;
+	} else {
+		logEntriesSize *= 2; /* double size */
+	}
 	LogEntry *newPtr = (LogEntry *)reallocarray(logEntries, logEntriesSize, sizeof(LogEntry));
 	if(newPtr == NULL) {
 		printf("Error: unable to realloc array for log entries\n");
@@ -109,11 +115,13 @@ void applyOldestLog() {
 			printf("Applied PUT for %s with val %d\n", key, val);
 			break;
 		case GET:
-			/* nothing to commit for GET */
-			if(state == NULL) {
-				printf("No value for %s\n", key);
-			} else {
-				printf("Value for %s is %d\n", key, state->val);
+			/* nothing to commit for GET. Only handle as LEADER */
+			if(serverStateType == LEADER) {
+				if(state == NULL) {
+					printf("No value for %s\n", key);
+				} else {
+					printf("Value for %s is %d\n", key, state->val);
+				}
 			}
 			break;
 		case DEL:
@@ -130,7 +138,8 @@ void applyOldestLog() {
 /* For RPC req OR resp, if contains term T > current term, need to update term and set to FOLLOWER
  * return 1 if new term, 0 if not
  */
-int checkTerm(int term, int forceChange) {
+int checkTerm(int term, int forceChange, int id) {
+	int changed = 0;
 	/* use mutex since called in threads */
 	pthread_mutex_lock(&termLock);
 	/* if term change or are forcing a change, update to FOLLOWER */
@@ -139,20 +148,25 @@ int checkTerm(int term, int forceChange) {
 		printf("Converting server to FOLLOWER\n");
 		serverStateType = FOLLOWER;
 		votedFor = -1; /* only reset votedFor on new term */
-		pthread_mutex_unlock(&termLock);
-		return 1;
+		changed = 1;
 	} else if(forceChange) {
 		printf("Converting server to FOLLOWER\n");
 		serverStateType = FOLLOWER;
-		pthread_mutex_unlock(&termLock);
-		return 1;
+		/* no change to save for this condition */
 	}
 	pthread_mutex_unlock(&termLock);
-	return 0;
+	
+	/* save new state if changed */
+	if(changed) {
+		if(writeState(id, currentTerm, votedFor, logEntries, logEntryIndex, &stateLock) == -1) {
+			printf("Error: failed to write state before replying to append entries\n");
+		}
+	}
+	return changed;
 }
 
 /* handle an append message */
-void handleAppendMsg(RPCAppendMsg *msg, LogEntry *entries, int numEntries, RPCAppendReplyMsg *replyMsg) {
+void handleAppendMsg(RPCAppendMsg *msg, LogEntry *entries, int numEntries, RPCAppendReplyMsg *replyMsg, int id) {
 	int term = ntohl(msg->term);
 	/* int leaderId = ntohl(msg->id);*/ /* TODO: for when we do client redirection */
 	int prevLogIndex = ntohl(msg->prevLogIndex);
@@ -191,7 +205,7 @@ void handleAppendMsg(RPCAppendMsg *msg, LogEntry *entries, int numEntries, RPCAp
 		if(logEntryIndex + numNewLogs >= logEntriesSize) {
 			/* new logs will exceed log entry space, increase here before continuing */
 			/* keep increasing until there is room */
-			increaseLogEntries();
+			increaseLogEntries(0);
 		} else {
 			break;
 		}
@@ -211,11 +225,18 @@ void handleAppendMsg(RPCAppendMsg *msg, LogEntry *entries, int numEntries, RPCAp
 		}
 	}
 
+	/* if there were new logs, save state */
+	if(numNewLogs > 0) {
+		if(writeState(id, currentTerm, votedFor, logEntries, logEntryIndex, &stateLock) == -1) {
+			printf("Error: failed to write state before replying to append entries\n");
+		}
+	}
+
 	return;
 }
 
 /* handle a vote message */
-void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
+void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg, int id) {
 	int term = ntohl(msg->term);
 	int candidateId = ntohl(msg->candidateId);
 	int lastLogIndex = ntohl(msg->lastLogIndex);
@@ -234,6 +255,10 @@ void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
 		/* 2. grant vote if votedFor is null or candidateId, and candidate log is atleast as up-to-date as log */
 		replyMsg->voteGranted = htonl(1);
 		votedFor = candidateId;
+		/* votedFor changed, save state */
+		if(writeState(id, currentTerm, votedFor, logEntries, logEntryIndex, &stateLock) == -1) {
+			printf("Error: failed to write state before replying to append entries\n");
+		}
 	} else {
 		/* otherwise, dont grant vote */
 		replyMsg->voteGranted = htonl(0);
@@ -249,7 +274,7 @@ void handleVoteMsg(RPCVoteMsg *msg, RPCVoteReplyMsg *replyMsg) {
  * Return: RPCHandlerResult, where headerInt is int representation of message type handled (based on mapHeaderToInt()),
  * 	and result is result int from RPC (-1 when failed)
  */
-RPCHandlerResult RPCHandler(int s, fd_set *master) {
+RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 	int check;
 	RPCHandlerResult result = {0, 0};
 
@@ -315,19 +340,19 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 			}
 			
 			int msgTerm = ntohl(appendMsg.term);
-			checkTerm(msgTerm, 0); /* will convert to FOLLOWER if new term */
+			checkTerm(msgTerm, 0, id); /* will convert to FOLLOWER if new term */
 			RPCAppendReplyMsg replyMsg;
 			replyMsg.term = htonl(currentTerm); /* set term */
 			replyMsg.success = 0; /* default success to false */
 			switch(serverStateType) {
 				case(FOLLOWER):
 					/* handle append msg for follower */
-					handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg); /* may set success to true */
+					handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg, id); /* may set success to true */
 					break;
 				case(CANDIDATE):
 					if(msgTerm == currentTerm) {
-						checkTerm(msgTerm, 1); /* force to FOLLOWER if APPEND MSG has equal term for candidate */
-						handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg); /* may set success to true */
+						checkTerm(msgTerm, 1, id); /* force to FOLLOWER if APPEND MSG has equal term for candidate */
+						handleAppendMsg(&appendMsg, entries, numEntries, &replyMsg, id); /* may set success to true */
 					}
 					break;
 				case(LEADER):
@@ -376,7 +401,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				return result;
 			}
 
-			checkTerm(ntohl(appendReplyMsg.term), 0); /* will convert to FOLLOWER if new term */
+			checkTerm(ntohl(appendReplyMsg.term), 0, id); /* will convert to FOLLOWER if new term */
 			switch(serverStateType) {
 				case(FOLLOWER):
 				case(CANDIDATE):
@@ -403,16 +428,16 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				return result;
 			}
 
-			checkTerm(ntohl(voteMsg.term), 0); /* will convert to FOLLOWER if new term */
+			checkTerm(ntohl(voteMsg.term), 0, id); /* will convert to FOLLOWER if new term */
 			switch(serverStateType) {
 				case(FOLLOWER):
 				case(CANDIDATE):
 				case(LEADER):
 					/* handle */
 					RPCVoteReplyMsg replyMsg;
-					handleVoteMsg(&voteMsg, &replyMsg);
+					handleVoteMsg(&voteMsg, &replyMsg, id);
 					replyMsg.term = htonl(currentTerm);
-					
+
 					/* reply*/
 					RPCHeader headerReply;
 					headerReply.rpcMsgType = htons(REPLY);
@@ -454,7 +479,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master) {
 				return result;
 			}
 
-			checkTerm(ntohl(voteReplyMsg.term), 0); /* will convert to FOLLOWER if new term */
+			checkTerm(ntohl(voteReplyMsg.term), 0, id); /* will convert to FOLLOWER if new term */
 			switch(serverStateType) {
 				case(FOLLOWER):
 					break;
@@ -485,8 +510,8 @@ void handleNewLeader() {
 void *AppendEntryThread(void *args) {
 	AppendEntryThreadArgs *threadArgs = (AppendEntryThreadArgs *)args;
 	int sockfd = threadArgs->sockfd;
-	int followerId = threadArgs->followerId;
-	int leaderId = threadArgs->leaderId;
+	int followerId = threadArgs->followerId; /* id sending to */
+	int leaderId = threadArgs->leaderId; /* own id */
 
 	RPCHandlerResult handlerResult;
 	int check;
@@ -506,7 +531,7 @@ void *AppendEntryThread(void *args) {
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
 		for(;;) {
-			handlerResult = RPCHandler(sockfd, NULL); /* might set server to FOLLOWER */
+			handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
 			if(handlerResult.result == -1) {
 				printf("Error: RPC handler error for heartbeat in append entries\n");
 				return NULL;
@@ -539,7 +564,7 @@ void *AppendEntryThread(void *args) {
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
 		for(;;) {
-			handlerResult = RPCHandler(sockfd, NULL); /* might set server to FOLLOWER */
+			handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
 			if(handlerResult.result == -1) {
 				printf("Error: RPC handler error for heartbeat in append entries\n");
 				return NULL;
@@ -763,12 +788,6 @@ int main(int argc, char *argv[]) {
 		strncpy(servers[i].hostname, argv[index + 1], HOST_LEN);
 	}
 
-	/* TODO: remove, just to check */
-	printf("id: %d, portNum: %d\n", id, portNum);
-	for(i = 0; i < NUM_SERVERS-1; i++) {
-		printf("id: %d, portNum: %d, sockfd: %d, hostname: %s\n", servers[i].id, servers[i].portNum, servers[i].sockfd, servers[i].hostname);
-	}
-
 	/* clear master, stdin, and temps */
     FD_ZERO(&master); 
 	FD_ZERO(&stdin_fd);
@@ -846,8 +865,18 @@ int main(int argc, char *argv[]) {
 	electionTimer.tv_sec = electionTimerVal_sec;
 	electionTimer.tv_usec = electionTimerVal_usec;
 
-	/* init lists */
-	logEntries = (LogEntry *)malloc(sizeof(LogEntry) * logEntriesSize);
+	/* init values */
+	/* if there is saved data, init data with it */
+	logEntries = readState(id, &currentTerm, &votedFor, &logEntryIndex);
+	if(!logEntries) {
+		printf("No saved data. Using default starting values\n");
+		logEntries = (LogEntry *)malloc(sizeof(LogEntry) * logEntriesSize);
+	} else {
+		logEntriesSize = logEntryIndex + 1;
+		if(logEntriesSize < DEFAULT_LOG_SIZE) {
+			increaseLogEntries(DEFAULT_LOG_SIZE);
+		}
+	}
 	stateMachine = ListCreate();
 
 	for (;;) {
@@ -891,7 +920,7 @@ int main(int argc, char *argv[]) {
 							if(i == listener) {
 								handle_new_connection(i, &master, &fdmax);
 							} else {
-								RPCHandlerResult result = RPCHandler(i, &master);
+								RPCHandlerResult result = RPCHandler(i, &master, id);
 								/* If handled APPEND MSG, reset election timer */
 								if(result.headerInt == 1 && result.result != -1) {
 									resetTimer = 1;
@@ -968,7 +997,7 @@ int main(int argc, char *argv[]) {
 								if(i == listener) {
 									handle_new_connection(i, &master, &fdmax);
 								} else {
-									RPCHandlerResult handlerResult = RPCHandler(i, &master);
+									RPCHandlerResult handlerResult = RPCHandler(i, &master, id);
 									if(serverStateType == FOLLOWER) {
 										/* Event B: Another server had a higher term, end CANDIDATE loop */
 										goto done_reading;
@@ -1016,15 +1045,15 @@ int main(int argc, char *argv[]) {
 							userLine[numRead -1] = '\0';
 						}
 
-						logEntryIndex += 1;
-						if(logEntryIndex >= logEntriesSize) {
-							increaseLogEntries();
-						}
 						/* convert input to command, add to local log */
 						/* TODO: error checking, also prolly regex */
-						LogEntry *entry = &logEntries[logEntryIndex];
+						if(logEntryIndex + 1 >= logEntriesSize) {
+							increaseLogEntries(0);
+						}
+						LogEntry *entry = &logEntries[logEntryIndex + 1];
 						entry->term = currentTerm;
 						char *token = strtok(userLine, " ");
+						int gotCommand = 1;
 						if(strcmp(token, "put") == 0) {
 							entry->cmd.type = PUT;
 							token = strtok(NULL, " ");
@@ -1043,7 +1072,14 @@ int main(int argc, char *argv[]) {
 							strcpy(entry->cmd.x, token);
 							entry->cmd.y = 0;
 						} else {
+							gotCommand = 0;
 							printf("Error: unknown command from user input\n");
+						}
+						if(gotCommand) {
+							logEntryIndex += 1;
+							if(writeState(id, currentTerm, votedFor, logEntries, logEntryIndex, &stateLock) == -1) {
+								printf("Error: failed to write state before replying to append entries\n");
+							}
 						}
 					}
 					free(userLine);

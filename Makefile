@@ -56,6 +56,9 @@ $(LIBLIST_DIR)/list_removers.o: $(LIBLIST_DIR)/list_removers.c $(LIBLIST_DIR)/li
 	$(CC) -o $(LIBLIST_DIR)/list_removers.o -c $(CFLAGS) $(CPPFLAGS) $(LIBLIST_DIR)/list_removers.c -I$(LIBLIST_DIR)
 
 # clean
-clean:
-	rm -rf *.o *.a $(LIBLIST_DIR)/*.o $(LIBLIST_DIR)/*.a server proxy
+clean: cleanfiles cleanstate
 
+cleanfiles:
+	rm -rf *.o *.a $(LIBLIST_DIR)/*.o $(LIBLIST_DIR)/*.a server proxy
+cleanstate:
+	rm -f state*.bin

@@ -80,13 +80,17 @@ int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend) {
 /* write a servers state (current term, voted for, log entries) to a binary file (state<id>.bin)
  * return 0 on success, -1 of fail
  */
-int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries) {
+int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries, pthread_mutex_t *stateLock) {
 	char filename[FILENAME_LEN];
 	snprintf(filename, sizeof(filename), "state%d.bin", id);
+	printf("writing to file %s\n", filename);
+
+	pthread_mutex_lock(stateLock);
 	/* open file for writing */
 	FILE *f = fopen(filename, "wb");
 	if(!f) {
 		perror("fopen");
+		pthread_mutex_unlock(stateLock);
 		return -1;
 	}
 
@@ -99,6 +103,7 @@ int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int num
 		printf("Error: failed to write persistent state\n");
 		perror("fwrite");
 		fclose(f);
+		pthread_mutex_unlock(stateLock);
 		return -1;
 	}
 	/* save entries */
@@ -107,12 +112,14 @@ int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int num
 			printf("Error: failed to write log entries\n");
 			perror("fwrite");
 			fclose(f);
+			pthread_mutex_unlock(stateLock);
 			return -1;
 		}
 	}
 
 	fsync(fileno(f)); /* sync file */
 	fclose(f);
+	pthread_mutex_unlock(stateLock);
 	return 0;
 }
 
@@ -123,10 +130,16 @@ int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int num
 LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries) {
 	char filename[FILENAME_LEN];
 	snprintf(filename, sizeof(filename), "state%d.bin", id);
+	printf("reading from file %s\n", filename);
+
 	/* open file for reading */
 	FILE *f = fopen(filename, "rb");
 	if(!f) {
-		perror("fopen");
+		if(errno == ENOENT) {
+			printf("File given doesn't exist. This is normal if first startup\n");
+		} else {
+			perror("fopen");
+		}
 		return NULL;
 	}
 
@@ -140,13 +153,13 @@ LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries) {
 	/* read log entries (if there are any, based on numEntries stored)*/
 	LogEntry *entries = NULL;
 	if(state.numEntries > 0) {
-		entries = malloc(sizeof(LogEntry) * state.numEntries);
+		entries = malloc(sizeof(LogEntry) * (state.numEntries + 1)); /* +1 for empty first index */
 		if(!entries) {
 			perror("malloc");
 			fclose(f);
 			return NULL;
 		}
-		if(fread(entries, sizeof(LogEntry), state.numEntries, f) != state.numEntries) {
+		if(fread(entries + 1, sizeof(LogEntry), state.numEntries, f) != state.numEntries) {
 			printf("Error: failed to read log entries\n");
 			free(entries);
 			fclose(f);
@@ -240,6 +253,7 @@ void close_connection(int s, fd_set *master, ServerInfo *serverInfo, pthread_mut
 		printf("Error: close connection on sockfd -1\n");
 		return;
 	}
+	printf("Closing connection on socket %d\n", s);
 	if(!serverInfo) {
 		printf("Error: close connection using invalid serverInfo\n");
 		return;

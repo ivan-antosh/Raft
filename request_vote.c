@@ -35,6 +35,5 @@ int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int las
 		return -1;
 	}
 
-	printf("RequestVote send to fd %d\n", sockfd);
 	return 0;
 }

@@ -18,7 +18,7 @@ void StateEntryFree(void *itemToBeFreed);
 LogEntry *getMsgEntries(int s, size_t totalBytesToRec);
 int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend);
 
-int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries);
+int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries, pthread_mutex_t *stateLock);
 LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries);
 
 int mapHeaderToInt(RPCMsgType msgType, RPCType type);
