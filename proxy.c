@@ -10,6 +10,14 @@
 #include "helper.h"
 #include "types.h"
 
+/* get the percent chance a packet gets dropped by the proxy */
+int dropProbability() {
+	const char *dropProbEnv = getenv("DROP_PROBABILITY");
+	if(dropProbEnv != NULL)
+		return atoi(dropProbEnv);
+	return 0; /* Default - 0% chance of dropping a traffic */
+}
+
 /* Calculates whether traffic will be dropped by the network
  * returns: 
  * - 1 Network traffic will be dropped
@@ -18,7 +26,7 @@
 int drop_traffic(int source, int destination) {
 	int n = rand() % 100;
 
-	if (n < DROP_PROBABILITY) {
+	if (n < dropProbability()) {
 		printf("\033[31m[DROP]\033[0m Dropping traffic | src: %d -> dest: %d\n", source, destination);
 		return 1;
 	}
@@ -118,6 +126,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	srand(time(NULL));
+
+	printf("DROP_PROBABILITY: %d%%\n", dropProbability());
 
 	/* Setup listening socket for each route */
 	for (int i = 0; i < NUM_SERVERS; i++) {
