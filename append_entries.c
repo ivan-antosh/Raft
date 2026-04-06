@@ -40,7 +40,7 @@ int AppendEntries(int sockfd, int term, int leaderId, int prevLogIndex, int prev
 
 	/* send RPC message */
 	if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
-		if(errno == EPIPE) {
+		if(errno == EPIPE || errno == EBADF || errno == ECONNRESET) {
 			return -2;
 		}
 		printf("Error: did not send append entries msg\n");

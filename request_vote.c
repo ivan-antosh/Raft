@@ -28,7 +28,7 @@ int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int las
 	msg.lastLogTerm = htonl(lastLogTerm);
 	/* send message */
 	if(send(sockfd, &msg, sizeof(msg), 0) == -1) {
-		if(errno == EPIPE) {
+		if(errno == EPIPE || errno == EBADF || errno == ECONNRESET) {
 			return -2;
 		}
 		perror("RequestVote msg - send");
