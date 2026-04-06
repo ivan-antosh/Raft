@@ -65,7 +65,7 @@ int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend) {
 	while(bytesSent < totalBytesToSend) {
 		check = send(s, (buffer + bytesSent), (totalBytesToSend - bytesSent), 0);
 		if(check == -1) {
-			if(errno == EPIPE) {
+			if(errno == EPIPE || errno == EBADF || errno == ECONNRESET) {
 				return -2;
 			}
 			printf("Error: did not send enough bytes for entries\n");
