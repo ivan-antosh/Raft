@@ -14,7 +14,7 @@ int RequestVote(int sockfd, int term, int candidateId, int lastLogIndex, int las
 	header.rpcType = htons(VOTE);
 	/* send header */
 	if(send(sockfd, &header, sizeof(header), 0) == -1) {
-		if(errno == EPIPE) {
+		if(errno == EPIPE || errno == EBADF) {
 			return -2;
 		}
 		perror("RequestVote header - send");
