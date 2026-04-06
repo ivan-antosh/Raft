@@ -20,6 +20,7 @@
 #include "list_lib/list.h"
 
 #define STDIN 0
+#define PROXY_ENABLED 1
 
 typedef struct {
 	int headerInt;
@@ -796,7 +797,7 @@ int main(int argc, char *argv[]) {
 		/* attempt to connect to higher id servers */
 		for(i = 0; i < (NUM_SERVERS - 1); i++) {
 			/* for race condition, only attempt connection for higher ids, listen for lower ids */
-			if(servers[i].id < id || servers[i].sockfd != -1) {
+			if((servers[i].id < id && !PROXY_ENABLED) || servers[i].sockfd != -1) {
 				continue;
 			}
 			check = connect_to_server(&servers[i], &master, &fdmax);
@@ -856,7 +857,7 @@ int main(int argc, char *argv[]) {
 		/* attempt to connect to higher id servers that have lost connection */
 		for(i = 0; i < (NUM_SERVERS - 1); i++) {
 			/* for race condition, only attempt connection for higher ids, listen for lower ids */
-			if(servers[i].id < id || servers[i].sockfd != -1) {
+			if((servers[i].id < id && !PROXY_ENABLED) || servers[i].sockfd != -1) {
 				continue;
 			}
 			check = connect_to_server(&servers[i], &master, &fdmax);
