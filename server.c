@@ -1020,6 +1020,11 @@ int main(int argc, char *argv[]) {
 					if((numRead = getline(&userLine, &userLen, stdin)) == -1) {
 						perror("getline failed");
 					} else {
+						/* Remove trailing newline */
+						if (userLine[numRead -1] == '\n') {
+							userLine[numRead -1] = '\0';
+						}
+
 						logEntryIndex += 1;
 						if(logEntryIndex >= logEntriesSize) {
 							increaseLogEntries();
