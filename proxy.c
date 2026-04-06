@@ -62,22 +62,30 @@ void *handle_connection(void *arg) {
 		}
 		break;
 	}
+
+	freeaddrinfo(servinfo); // done with this
+
 	if(p == NULL) {
 		/* nothing found, try again next main iteration */
 		close(args->client_fd);
+		free(args);
 		return NULL;
 	}
-
-	freeaddrinfo(servinfo); // done with this
 
 	/* Handle Raft server handshake */
 	HandshakeMsg msg;
 	if((recv(args->client_fd, &msg, sizeof(msg), 0)) == -1) {
 		perror("Handshake - recv");
+		close(args->client_fd);
+		close(server_fd);
+		free(args);
 		return NULL;
 	}
 	if((send(server_fd, &msg, sizeof(msg), 0)) == -1) {
 		perror("Handshake - send");
+		close(args->client_fd);
+		close(server_fd);
+		free(args);
 		return NULL;
 	}
 
@@ -104,7 +112,10 @@ void *handle_connection(void *arg) {
 				break;
 			}
 			if(!drop_traffic(args->client_fd, server_fd)) {
-				send(server_fd, buffer, bytes, 0);
+				if (send(server_fd, buffer, bytes, 0) < 0) {
+					printf("[Proxy] Server closed connection on fd %d\n", server_fd);
+					break;
+				}
 			}
 		}
 
@@ -115,7 +126,10 @@ void *handle_connection(void *arg) {
 				break;
 			}
 			if(!drop_traffic(args->client_fd, server_fd)) {
-				send(args->client_fd, buffer, bytes, 0);
+				if (send(args->client_fd, buffer, bytes, 0) < 0) {
+					printf("[Proxy] Send to client failed on fd %d\n", args->client_fd);
+					break;
+				}
 			}
 		}
 	}
