@@ -326,6 +326,7 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 			int numEntries = ntohl(appendMsg.entriesLen);
 			LogEntry *entries = NULL;
 			if(numEntries > 0) {
+				printf("GOT NUMERNTRIES %d\n", numEntries);
 				size_t totalBytesToRec = numEntries * sizeof(LogEntry);
 				entries = getMsgEntries(s, totalBytesToRec);
 				if(!entries) {
@@ -857,8 +858,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* init timers */
-	srand(time(NULL) ^ id);
-	electionTimerVal = (rand() % 1001 + 1000) * 1000; /* between 1000-2000 ms */
+	// srand(time(NULL) ^ id);
+	// electionTimerVal = (rand() % 1001 + 1000) * 1000; /* between 1000-2000 ms */
+	electionTimerVal = 1000000 + (((id + NUM_SERVERS - 1) % NUM_SERVERS) * 200000);
 	electionTimerVal_sec = electionTimerVal / 1000000;
 	electionTimerVal_usec = electionTimerVal % 1000000;
 	printf("server will use election timeout of %ds %dms\n", electionTimerVal_sec, electionTimerVal_usec / 1000);
@@ -905,6 +907,7 @@ int main(int argc, char *argv[]) {
 			case FOLLOWER:
 				int resetTimer = 0;
 				read_fds = master;
+				//printf("follower select, with timer %ld %ld\n", electionTimer.tv_sec, electionTimer.tv_usec);
 				check = select(fdmax + 1, &read_fds, NULL, NULL, &electionTimer);
 				if(check == -1) {
 					perror("select: read on follower");
@@ -922,7 +925,7 @@ int main(int argc, char *argv[]) {
 							} else {
 								RPCHandlerResult result = RPCHandler(i, &master, id);
 								/* If handled APPEND MSG, reset election timer */
-								if(result.headerInt == 1 && result.result != -1) {
+								if(result.headerInt == 1) {
 									resetTimer = 1;
 								}
 							}
@@ -1094,7 +1097,9 @@ int main(int argc, char *argv[]) {
 
 				int appendEntriesThreadCreated[NUM_SERVERS - 1] = {0};
 				for(int i = 0; i < (NUM_SERVERS-1); i++) {
+					//printf("For id %d, have socket %d\n", i, servers[i].sockfd);
 					if(servers[i].sockfd == -1) {
+						//printf("NOT making thread for id %d\n", i);
 						continue;
 					}
 					appendEntriesThreadArgs[i].sockfd = servers[i].sockfd;
