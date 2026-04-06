@@ -83,7 +83,7 @@ int sendMsgEntries(int s, LogEntry *entries, size_t totalBytesToSend) {
 int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int numEntries, pthread_mutex_t *stateLock) {
 	char filename[FILENAME_LEN];
 	snprintf(filename, sizeof(filename), "state%d.bin", id);
-	printf("writing to file %s\n", filename);
+	/* printf("writing to file %s\n", filename); */
 
 	pthread_mutex_lock(stateLock);
 	/* open file for writing */
@@ -130,7 +130,7 @@ int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int num
 LogEntry *readState(int id, int *currentTerm, int *votedFor, int *numEntries) {
 	char filename[FILENAME_LEN];
 	snprintf(filename, sizeof(filename), "state%d.bin", id);
-	printf("reading from file %s\n", filename);
+	/* printf("reading from file %s\n", filename); */
 
 	/* open file for reading */
 	FILE *f = fopen(filename, "rb");

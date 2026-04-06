@@ -282,11 +282,14 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 	RPCHeader header;
 	check = recv(s, &header, sizeof(header), 0);
 	if(check != sizeof(header)) {
-		printf("Error: did not rec full header\n");
-		perror("recv");
-		close(s);
-		if(master) {
-			FD_CLR(s, master);
+		if(check == 0) {
+			close_connection(s, master, servers, &serversLock);
+		} else if(check == -1) {
+			perror("recv");
+			close_connection(s, master, servers, &serversLock);
+		} else {
+			printf("Error: did not rec full header\n");
+			perror("recv");
 		}
 		result.result = -1;
 		return result;
@@ -307,11 +310,14 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 			/* rec */
 			check = recv(s, &appendMsg, sizeof(appendMsg), 0);
 			if (check != sizeof(appendMsg)) {
-				printf("Error: did not rec full append msg\n");
-				perror("recv");
-				close(s);
-				if(master) {
-					FD_CLR(s, master);
+				if(check == 0) {
+					close_connection(s, master, servers, &serversLock);
+				} else if(check == -1) {
+					perror("recv");
+					close_connection(s, master, servers, &serversLock);
+				} else {
+					printf("Error: did not rec full append msg\n");
+					perror("recv");
 				}
 				result.result = -1;
 				return result;
@@ -391,11 +397,14 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 			/* rec */
 			check = recv(s, &appendReplyMsg, sizeof(appendReplyMsg), 0);
 			if (check != sizeof(appendReplyMsg)) {
-				printf("Error: did not rec full append reply msg\n");
-				perror("recv");
-				close(s);
-				if(master) {
-					FD_CLR(s, master);
+				if(check == 0) {
+					close_connection(s, master, servers, &serversLock);
+				} else if(check == -1) {
+					perror("recv");
+					close_connection(s, master, servers, &serversLock);
+				} else {
+					printf("Error: did not rec full append reply msg\n");
+					perror("recv");
 				}
 				result.result = -1;
 				return result;
@@ -418,11 +427,14 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 			/* rec */
 			check = recv(s, &voteMsg, sizeof(voteMsg), 0);
 			if (check != sizeof(voteMsg)) {
-				printf("Error: did not rec full vote msg\n");
-				perror("recv");
-				close(s);
-				if(master) {
-					FD_CLR(s, master);
+				if(check == 0) {
+					close_connection(s, master, servers, &serversLock);
+				} else if(check == -1) {
+					perror("recv");
+					close_connection(s, master, servers, &serversLock);
+				} else {
+					printf("Error: did not rec full vote msg\n");
+					perror("recv");
 				}
 				result.result = -1;
 				return result;
@@ -469,11 +481,14 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 			/* rec */
 			check = recv(s, &voteReplyMsg, sizeof(voteReplyMsg), 0);
 			if (check != sizeof(voteReplyMsg)) {
-				printf("Error: did not rec full vote reply msg\n");
-				perror("recv");
-				close(s);
-				if(master) {
-					FD_CLR(s, master);
+				if(check == 0) {
+					close_connection(s, master, servers, &serversLock);
+				} else if(check == -1) {
+					perror("recv");
+					close_connection(s, master, servers, &serversLock);
+				} else {
+					printf("Error: did not rec full vote reply msg\n");
+					perror("recv");
 				}
 				result.result = -1;
 				return result;
