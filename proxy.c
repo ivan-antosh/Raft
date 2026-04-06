@@ -107,6 +107,7 @@ void *handle_connection(void *arg) {
 
 	close(args->client_fd);
 	close(server_fd);
+	free(args);
 	return NULL;
 }
 
@@ -143,9 +144,11 @@ int main(int argc, char *argv[]) {
 					targetArgs[i].client_fd = client_fd;
 
 					if (client_fd >= 0) {
+						proxy_args_t *threadArg = malloc(sizeof(proxy_args_t));
+						memcpy(threadArg, &targetArgs[i], sizeof(proxy_args_t));
 						pthread_t tid;
 						/* Spawn a thread for this connection and detach it so it cleans up its own memory */
-						pthread_create(&tid, NULL, handle_connection, &targetArgs[i]);
+						pthread_create(&tid, NULL, handle_connection, threadArg);
 						pthread_detach(tid);
 					}
 				}
