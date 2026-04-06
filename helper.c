@@ -253,7 +253,9 @@ void close_connection(int s, fd_set *master, ServerInfo *serverInfo, pthread_mut
 		printf("Error: close connection on sockfd -1\n");
 		return;
 	}
-	printf("Closing connection on socket %d\n", s);
+	if (!proxyEnabled()) {
+		printf("Closing connection on socket %d\n", s);
+	}
 	if(!serverInfo) {
 		printf("Error: close connection using invalid serverInfo\n");
 		return;

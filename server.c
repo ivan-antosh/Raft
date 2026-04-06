@@ -286,7 +286,9 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 		if(check == 0) {
 			close_connection(s, master, servers, &serversLock);
 		} else if(check == -1) {
-			perror("recv");
+			if (!proxyEnabled()) {
+				perror("recv");
+			}
 			close_connection(s, master, servers, &serversLock);
 		} else {
 			printf("Error: did not rec full header\n");
@@ -543,7 +545,9 @@ void *AppendEntryThread(void *args) {
 		for(;;) {
 			handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
 			if(handlerResult.result == -1) {
-				printf("Error: RPC handler error for heartbeat in append entries\n");
+				if (!proxyEnabled()) {
+					printf("Error: RPC handler error for heartbeat in append entries\n");
+				}
 				return NULL;
 			}
 			if(handlerResult.headerInt == 2 || serverStateType != LEADER) {
@@ -576,7 +580,9 @@ void *AppendEntryThread(void *args) {
 		for(;;) {
 			handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
 			if(handlerResult.result == -1) {
-				printf("Error: RPC handler error for heartbeat in append entries\n");
+				if (!proxyEnabled()) {
+					printf("Error: RPC handler error for heartbeat in append entries\n");
+				}
 				return NULL;
 			}
 			if(serverStateType != LEADER) {
@@ -663,7 +669,9 @@ int handle_new_connection(int listener, fd_set *master, int *fdmax)
 			break;
 		}
 	}
-	printf("Connected to %d\n", id);
+	if (!proxyEnabled()) {
+		printf("Connected to %d\n", id);
+	}
 	return 1;
 }
 
@@ -732,7 +740,9 @@ int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax, int id
         perror("send");
         exit(1);
     }
-	printf("Connected to %d\n", serverInfo->id);
+		if (!proxyEnabled()) {
+			printf("Connected to %d\n", serverInfo->id);
+		}
 
     return 1;
 }
