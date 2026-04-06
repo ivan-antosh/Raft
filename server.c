@@ -92,6 +92,7 @@ void increaseLogEntries(int size) {
 void applyOldestLog() {
 	/* apply to state machine */
 	lastApplied += 1;
+	printf("Applying log, indexing at %d\n", lastApplied);
 	Command cmd = logEntries[lastApplied].cmd;
 	char *key = cmd.x;
 	int val = cmd.y;
@@ -809,54 +810,6 @@ int main(int argc, char *argv[]) {
 	/* set stdin */
 	FD_SET(STDIN, &stdin_fd);
 
-	/* Connect to all servers before continuing */
-	int neededConnections = (NUM_SERVERS / 2) + 1;
-	for(;;) {
-		printf("needed connections: %d\n", neededConnections);
-		if(neededConnections <= 0) {
-			break; /* got all connections */
-		}
-		sleep(1);
-		printf("trying connections...\n");
-		
-		/* attempt to connect to higher id servers */
-		for(i = 0; i < (NUM_SERVERS - 1); i++) {
-			/* for race condition, only attempt connection for higher ids, listen for lower ids */
-			if((servers[i].id < id && !proxyEnabled()) || servers[i].sockfd != -1) {
-				continue;
-			}
-			check = connect_to_server(&servers[i], &master, &fdmax, id);
-			if (check == -1) {
-				printf("Error: connect to server\n");
-				return 1;
-			} else if (check == 1) {
-				neededConnections -= 1;
-			}
-		}
-
-		/* check for incoming connections on listener */
-		read_fds = master;
-		tv.tv_sec = 0;
-		tv.tv_usec = 0;
-		check = select(fdmax + 1, &read_fds, NULL, NULL, &tv);
-		if(check == -1) {
-			perror("select: read on listener");
-			exit(4);
-		}
-		for(i = 0; i <= fdmax; i++) {
-			if(FD_ISSET(i, &read_fds)) {
-				/* only check listener */
-				if(i == listener) {
-					check = handle_new_connection(i, &master, &fdmax);
-					printf("check: %d\n", check);
-					if(check == 1) {
-						neededConnections -= 1;
-					}
-				}
-			}
-		}
-	}
-
 	/* init timers */
 	// srand(time(NULL) ^ id);
 	// electionTimerVal = (rand() % 1001 + 1000) * 1000; /* between 1000-2000 ms */
@@ -880,11 +833,17 @@ int main(int argc, char *argv[]) {
 			increaseLogEntries(DEFAULT_LOG_SIZE);
 		}
 	}
+	printf("State: currentTerm %d votedFor %d logEntryIndex %d logEntrySize %d\n", currentTerm, votedFor, logEntryIndex, logEntriesSize);
 	stateMachine = ListCreate();
 
+	int neededConnections = NUM_SERVERS / 2;
 	for (;;) {
+		int numConnections = 0;
 		/* attempt to connect to higher id servers that have lost connection */
 		for(i = 0; i < (NUM_SERVERS - 1); i++) {
+			if(servers[i].sockfd != -1) {
+				numConnections += 1;
+			}
 			/* for race condition, only attempt connection for higher ids, listen for lower ids */
 			if((servers[i].id < id && !proxyEnabled()) || servers[i].sockfd != -1) {
 				continue;
@@ -895,6 +854,34 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 		}
+
+		/* check for incoming connections on listener */
+		read_fds = master;
+		tv.tv_sec = 0;
+		tv.tv_usec = 0;
+		check = select(fdmax + 1, &read_fds, NULL, NULL, &tv);
+		if(check == -1) {
+			perror("select: read on listener");
+			exit(4);
+		}
+		for(i = 0; i <= fdmax; i++) {
+			if(FD_ISSET(i, &read_fds)) {
+				/* only check listener */
+				if(i == listener) {
+					check = handle_new_connection(i, &master, &fdmax);
+					if(check == 1) {
+						neededConnections -= 1;
+					}
+				}
+			}
+		}
+
+		/* if not connected to majority of servers, dont proceed */
+		if(numConnections < neededConnections) {
+			//printf("need more connections %d\n", numConnections);
+			continue;
+		}
+		//printf("have enough connections %d\n", numConnections);
 
 		/* for all server states: */
 		/* if commit index is larger than last applied, increase last applied and commit new log */
