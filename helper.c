@@ -260,3 +260,10 @@ void close_connection(int s, fd_set *master, ServerInfo *serverInfo, pthread_mut
 
 	return;
 }
+
+int proxyEnabled() {
+	const char *proxyEnv = getenv("PROXY_ENABLED");
+	if(proxyEnv != NULL)
+		return atoi(proxyEnv);
+	return 0;
+}

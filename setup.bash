@@ -11,6 +11,9 @@ PROXY_PORT_NUM=34000
 PROXY_FLAG=false
 if [ "$1" == "-proxy" ]; then
 	PROXY_FLAG=true
+	export PROXY_ENABLED=1
+else
+	export PROXY_ENABLED=0
 fi
 
 getProxy() {
