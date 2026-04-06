@@ -108,7 +108,7 @@ int writeState(int id, int currentTerm, int votedFor, LogEntry *entries, int num
 	}
 	/* save entries */
 	if(numEntries > 0) {
-		if(fwrite(entries, sizeof(LogEntry), numEntries, f) != numEntries) {
+		if(fwrite(entries + 1, sizeof(LogEntry), numEntries, f) != numEntries) {
 			printf("Error: failed to write log entries\n");
 			perror("fwrite");
 			fclose(f);
