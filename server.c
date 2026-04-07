@@ -856,7 +856,8 @@ int main(int argc, char *argv[]) {
 	FD_SET(STDIN, &stdin_fd);
 
 	/* init timers */
-	electionTimerVal = 1000000 + (((id + NUM_SERVERS - 1) % NUM_SERVERS) * 200000);
+	//proxyEnabled increases electionTimerVal to a min of 3 sec when proxy is enabled
+	electionTimerVal = 1000000 * (proxyEnabled() ? 3 : 1) + (((id + NUM_SERVERS - 1) % NUM_SERVERS) * 200000);
 	electionTimerVal_sec = electionTimerVal / 1000000;
 	electionTimerVal_usec = electionTimerVal % 1000000;
 	printf("server will use election timeout of %ds %dms\n", electionTimerVal_sec, electionTimerVal_usec / 1000);
