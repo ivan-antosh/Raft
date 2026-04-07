@@ -237,6 +237,7 @@ int main(int argc, char *argv[]) {
 	srand(time(NULL));
 
 	printf("DROP_PROBABILITY: %.2f%%\n", drop_probability());
+	printf("DELAY_PROBABILITY: %.2f%%\n", delay_probability());
 
 	/* Setup listening socket for each route */
 	for (int i = 0; i < NUM_SERVERS; i++) {

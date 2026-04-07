@@ -303,7 +303,7 @@ float drop_probability() {
 
 /* get the percent chance a packet gets delayed by the proxy */
 float delay_probability() {
-	const char *delayProbEnv = getenv("DROP_PROBABILITY");
+	const char *delayProbEnv = getenv("DELAY_PROBABILITY");
 	if(delayProbEnv != NULL)
 		return atof(delayProbEnv);
 	return 0; /* Default - 0% chance of delaying traffic */
