@@ -11,59 +11,73 @@
 #include "types.h"
 
 /* Read a complete Raft RPC (header + body) from fd into buffer.
- * Returns number of bytes read on success, <=0 on failure/partial/close. */
-static int read_full_rpc(int fd, char *buffer, size_t *out_len) {
-    int pos = 0;
-    const size_t MAX_RPC = 1024 * 64; /* generous; adjust for huge logs */
+ * Returns: 
+ * - number of bytes read on success, <=0 on failure/partial/close. 
+ */
+int read_full_rpc(int fd, char *buffer, size_t *out_len) {
+	int pos = 0;
+	const size_t MAX_RPC = 1024 * 64; /* generous; adjust for huge logs */
 
-    /* 1. Header */
-    int check = recv(fd, buffer, sizeof(RPCHeader), 0);
-    if (check != sizeof(RPCHeader)) return check;
-    pos += check;
+	/* 1. Header */
+	int check = recv(fd, buffer, sizeof(RPCHeader), 0);
+	if (check != sizeof(RPCHeader)) {
+		return check;
+	}
+	pos += check;
 
-    RPCHeader *header = (RPCHeader *)buffer;
-    uint16_t msgType = ntohs(header->rpcMsgType);
-    uint16_t rpcType   = ntohs(header->rpcType);
+	RPCHeader *header = (RPCHeader *)buffer;
+	uint16_t msgType = ntohs(header->rpcMsgType);
+	uint16_t rpcType   = ntohs(header->rpcType);
 
-    /* 2. Body */
-    if (rpcType == APPEND && msgType == MSG) {
-        /* RPCAppendMsg + variable entries */
-        check = recv(fd, buffer + pos, sizeof(RPCAppendMsg), 0);
-        if (check != sizeof(RPCAppendMsg)) return check;
-        pos += check;
+	/* 2. Body */
+	if (rpcType == APPEND && msgType == MSG) {
+		/* RPCAppendMsg + variable entries */
+		check = recv(fd, buffer + pos, sizeof(RPCAppendMsg), 0);
+		if (check != sizeof(RPCAppendMsg)) {
+			return check;
+		}
+		pos += check;
 
-        RPCAppendMsg *appendMsg = (RPCAppendMsg *)(buffer + sizeof(RPCHeader));
-        uint32_t numEntries = ntohl(appendMsg->entriesLen);
-        size_t entriesBytes = (size_t)numEntries * sizeof(LogEntry);
+		RPCAppendMsg *appendMsg = (RPCAppendMsg *)(buffer + sizeof(RPCHeader));
+		uint32_t numEntries = ntohl(appendMsg->entriesLen);
+		size_t entriesBytes = (size_t)numEntries * sizeof(LogEntry);
 
-        if (entriesBytes > 0) {
-            if (pos + entriesBytes > MAX_RPC) {
-                printf("[Proxy] RPC too large\n");
-                return -1;
-            }
-            check = recv(fd, buffer + pos, entriesBytes, 0);
-            if (check != (int)entriesBytes) return check;
-            pos += check;
-        }
-    } else if (rpcType == APPEND && msgType == REPLY) {
-        check = recv(fd, buffer + pos, sizeof(RPCAppendReplyMsg), 0);
-        if (check != sizeof(RPCAppendReplyMsg)) return check;
-        pos += check;
-    } else if (rpcType == VOTE && msgType == MSG) {
-        check = recv(fd, buffer + pos, sizeof(RPCVoteMsg), 0);
-        if (check != sizeof(RPCVoteMsg)) return check;
-        pos += check;
-    } else if (rpcType == VOTE && msgType == REPLY) {
-        check = recv(fd, buffer + pos, sizeof(RPCVoteReplyMsg), 0);
-        if (check != sizeof(RPCVoteReplyMsg)) return check;
-        pos += check;
-    } else {
-        printf("[Proxy] unknown RPC type %d and %d\n", rpcType, msgType);
-        return -1;
-    }
+		if (entriesBytes > 0) {
+			if (pos + entriesBytes > MAX_RPC) {
+				printf("[Proxy] RPC too large\n");
+				return -1;
+			}
+			check = recv(fd, buffer + pos, entriesBytes, 0);
+			if (check != (int)entriesBytes) {
+				return check;
+			}
+			pos += check;
+		}
+	} else if (rpcType == APPEND && msgType == REPLY) {
+		check = recv(fd, buffer + pos, sizeof(RPCAppendReplyMsg), 0);
+		if (check != sizeof(RPCAppendReplyMsg)) {
+			return check;
+		}
+		pos += check;
+	} else if (rpcType == VOTE && msgType == MSG) {
+		check = recv(fd, buffer + pos, sizeof(RPCVoteMsg), 0);
+		if (check != sizeof(RPCVoteMsg)) {
+			return check;
+		}
+		pos += check;
+	} else if (rpcType == VOTE && msgType == REPLY) {
+		check = recv(fd, buffer + pos, sizeof(RPCVoteReplyMsg), 0);
+		if (check != sizeof(RPCVoteReplyMsg)) {
+			return check;
+		}
+		pos += check;
+	} else {
+		printf("[Proxy] unknown RPC type %d and %d\n", rpcType, msgType);
+		return -1;
+	}
 
-    *out_len = pos;
-    return (int)pos;
+	*out_len = pos;
+	return (int)pos;
 }
 
 /* get the percent chance a packet gets dropped by the proxy */
