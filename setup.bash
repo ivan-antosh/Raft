@@ -44,13 +44,15 @@ getServer() {
 
 # start detached tmux session
 SESSION="raft_servers"
-tmux new-session -d -s $SESSION
+tmux new-session -d -s $SESSION -n "temp"
 
 # Run proxy servers when -proxy flag is given to setup.bash
 if $PROXY_FLAG; then
+	tmux new-window -t $SESSION -n "proxy"
+
 	CMD="DROP_PROBABILITY=$DROP_PROBABILITY $PROXY_EXE $(getProxy 1) $(getProxy 2) $(getProxy 3) $(getProxy 4) $(getProxy 5)"
 
-	tmux send-keys -t $SESSION:1 "$CMD" C-m
+	tmux send-keys -t $SESSION:proxy "$CMD" C-m
 
 	echo "proxy server $i started with pid $!"
 fi
@@ -65,6 +67,9 @@ for ((i = 1; i < (NUM_SERVERS + 1); i++)); do
 
 	echo "process $i started with pid $!"
 done
+
+# Clean up the initial window
+tmux kill-window -t $SESSION:temp 2>/dev/null || true
 
 echo "All processes started in tmux session $SESSION"
 
