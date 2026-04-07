@@ -132,6 +132,8 @@ void applyOldestLog() {
 			}
 			printf("Applied DEL for %s\n", key);
 			break;
+		case NOOP:
+			printf("NOOP\n");
 	}
 }
 
@@ -515,6 +517,12 @@ void handleNewLeader() {
 		nextIndex[i] = logEntryIndex + 1;
 		matchIndex[i] = 0;
 	}
+	logEntryIndex += 1;
+	if(logEntryIndex >= logEntriesSize) {
+		increaseLogEntries(0);
+	}
+	logEntries[logEntryIndex].term = currentTerm;
+	logEntries[logEntryIndex].cmd.type = NOOP;
 }
 
 /* Thread to handle append entry rpc calls */

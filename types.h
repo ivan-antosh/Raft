@@ -18,7 +18,8 @@ typedef enum {
 typedef enum {
 	PUT,
 	GET,
-	DEL
+	DEL,
+	NOOP
 } CommandType;
 
 /* RPC types, for RPCHeaderMsg */
