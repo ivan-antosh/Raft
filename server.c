@@ -92,7 +92,6 @@ void increaseLogEntries(int size) {
 void applyOldestLog() {
 	/* apply to state machine */
 	lastApplied += 1;
-	printf("Applying log, indexing at %d\n", lastApplied);
 	Command cmd = logEntries[lastApplied].cmd;
 	char *key = cmd.x;
 	int val = cmd.y;
@@ -527,6 +526,10 @@ void *AppendEntryThread(void *args) {
 
 	RPCHandlerResult handlerResult;
 	int check;
+	fd_set socket_fd, tempfd;
+	struct timeval tv;
+	FD_ZERO(&socket_fd);
+	FD_SET(sockfd, &socket_fd);
 
 	int followerNextIndex = nextIndex[followerId - 1];
 	if(logEntryIndex < followerNextIndex) {
@@ -542,16 +545,29 @@ void *AppendEntryThread(void *args) {
 			return NULL;
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
+		/* set timeout for to handle dropped messages */
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
 		for(;;) {
-			handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
-			if(handlerResult.result == -1) {
-				if (!proxyEnabled()) {
-					printf("Error: RPC handler error for heartbeat in append entries\n");
-				}
+			tempfd = socket_fd;
+			check = select(sockfd + 1, &tempfd, NULL, NULL, &tv);
+			if(check == -1) {
+				perror("select: heartbeat");
+				return NULL;
+			} else if(check == 0) {
 				return NULL;
 			}
-			if(handlerResult.headerInt == 2 || serverStateType != LEADER) {
-				return NULL;
+			if(FD_ISSET(sockfd, &tempfd)) {
+				handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
+				if(handlerResult.result == -1) {
+					if (!proxyEnabled()) {
+						printf("Error: RPC handler error for heartbeat in append entries\n");
+					}
+					return NULL;
+				}
+				if(handlerResult.headerInt == 2 || serverStateType != LEADER) {
+					return NULL;
+				}
 			}
 		}
 	}
@@ -577,19 +593,31 @@ void *AppendEntryThread(void *args) {
 			return NULL;
 		}
 		/* keep handling until rec an APPEND REPLY or no longer LEADER */
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
 		for(;;) {
-			handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
-			if(handlerResult.result == -1) {
-				if (!proxyEnabled()) {
-					printf("Error: RPC handler error for heartbeat in append entries\n");
+			tempfd = socket_fd;
+			check = select(sockfd + 1, &tempfd, NULL, NULL, &tv);
+			if(check == -1) {
+				perror("select: heartbeat");
+				return NULL;
+			} else if(check == 0) {
+				return NULL;
+			}
+			if(FD_ISSET(sockfd, &tempfd)) {
+				handlerResult = RPCHandler(sockfd, NULL, leaderId); /* might set server to FOLLOWER */
+				if(handlerResult.result == -1) {
+					if (!proxyEnabled()) {
+						printf("Error: RPC handler error for heartbeat in append entries\n");
+					}
+					return NULL;
 				}
-				return NULL;
-			}
-			if(serverStateType != LEADER) {
-				return NULL;
-			}
-			if(handlerResult.headerInt == 2) {
-				break;
+				if(serverStateType != LEADER) {
+					return NULL;
+				}
+				if(handlerResult.headerInt == 2) {
+					break;
+				}
 			}
 		}
 
