@@ -80,23 +80,6 @@ int read_full_rpc(int fd, char *buffer, size_t *out_len) {
 	return (int)pos;
 }
 
-/* get the percent chance a packet gets dropped by the proxy */
-int drop_probability() {
-	const char *dropProbEnv = getenv("DROP_PROBABILITY");
-	if(dropProbEnv != NULL)
-		return atoi(dropProbEnv);
-	return 0; /* Default - 0% chance of dropping a traffic */
-}
-
-/* get the percent chance a packet gets delayed by the proxy */
-int delay_probability() {
-	/* NOTE: Drop probability and Delay probability have the same probability */
-	const char *delayProbEnv = getenv("DROP_PROBABILITY");
-	if(delayProbEnv != NULL)
-		return atoi(delayProbEnv);
-	return 0; /* Default - 0% chance of delaying traffic */
-}
-
 /* Calculates whether traffic will be dropped by the network
  * returns: 
  * - 1 Network traffic will be dropped
@@ -121,7 +104,7 @@ int delay_traffic(int source, int destination) {
 	int n = rand() % 100;
 
 	if (n < delay_probability()) {
-		printf("\033[95m[DELAY]\033[0m Delaying traffic for %d sec | src: %d -> dest: %d\n", DELAY_LENGTH, source, destination);
+		printf("\033[95m[DELAY]\033[0m Delaying traffic for %f sec | src: %d -> dest: %d\n", delay_length(), source, destination);
 		return 1;
 	}
 	return 0;
@@ -208,7 +191,7 @@ void *handle_connection(void *arg) {
 			if(!drop_traffic(args->client_fd, server_fd)) {
 				if(delay_traffic(args->client_fd, server_fd)) {
 					/* Delay traffic */
-					sleep(DELAY_LENGTH);
+					sleep(delay_length());
 				}
 				if (send(server_fd, buffer, bytes, 0) < 0) {
 					printf("[Proxy] Server closed connection on fd %d\n", server_fd);
@@ -225,7 +208,7 @@ void *handle_connection(void *arg) {
 			}
 			if(!drop_traffic(args->client_fd, server_fd)) {
 				if (delay_traffic(args->client_fd, server_fd)) {
-					sleep(DELAY_LENGTH);
+					sleep(delay_length());
 				}
 				if (send(args->client_fd, buffer, bytes, 0) < 0) {
 					printf("[Proxy] Send to client failed on fd %d\n", args->client_fd);
@@ -253,7 +236,7 @@ int main(int argc, char *argv[]) {
 
 	srand(time(NULL));
 
-	printf("DROP_PROBABILITY: %d%%\n", drop_probability());
+	printf("DROP_PROBABILITY: %f%%\n", drop_probability());
 
 	/* Setup listening socket for each route */
 	for (int i = 0; i < NUM_SERVERS; i++) {
