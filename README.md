@@ -23,7 +23,7 @@ Sets up a proxy server that emulates an unreliable network connection between th
 To run manually:
 
 for each server, run (this implementation requires exactly 5 servers):
-> ./server \<id> \<port number> (\<id> \<host name> \<port number>) * (5 servers)
+> ./server \<id> \<port number> (\<id> \<host name> \<port number>) * (4 servers)
 each server must use a unique id, in the range of 1-5 (inclusive)
 
 # Use
