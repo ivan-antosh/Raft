@@ -7,6 +7,13 @@ PROXY_EXE="./proxy"
 SERVER_PORT_NUM=33000
 PROXY_PORT_NUM=34000
 
+# Default Environment Variable Values
+PROXY_ENABLED=0
+ELECTION_TIME=1
+DROP_PROBABILITY=0
+DELAY_PROBABILITY=0
+DELAY_LENGTH=1.5
+
 # Check for -proxy flag
 if [ "$1" == "-proxy" ]; then
 	PROXY_ENABLED=1
@@ -21,10 +28,8 @@ if [ "$1" == "-proxy" ]; then
 		exit 2
 	else
 		DROP_PROBABILITY=$2
+		DELAY_PROBABILITY=$2
 	fi
-else
-	PROXY_ENABLED=0
-	ELECTION_TIME=1
 fi
 
 # gets formated proxy args
@@ -50,7 +55,7 @@ tmux new-session -d -s $SESSION -n "temp"
 if [ $PROXY_ENABLED -eq 1 ]; then
 	tmux new-window -t $SESSION -n "proxy"
 
-	CMD="DROP_PROBABILITY=$DROP_PROBABILITY $PROXY_EXE $(getProxy 1) $(getProxy 2) $(getProxy 3) $(getProxy 4) $(getProxy 5)"
+	CMD="DROP_PROBABILITY=$DROP_PROBABILITY DELAY_PROBABILITY=$DELAY_PROBABILITY DELAY_LENGTH=$DELAY_LENGTH $PROXY_EXE $(getProxy 1) $(getProxy 2) $(getProxy 3) $(getProxy 4) $(getProxy 5)"
 
 	tmux send-keys -t $SESSION:proxy "$CMD" C-m
 
