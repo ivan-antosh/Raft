@@ -1170,31 +1170,33 @@ int main(int argc, char *argv[]) {
 					break;
 				}
 
-				/* update commit index once all appendentries done */
+				/* update commit index once all append entries done */
+				/* Find the largest n where:
+				 * - n > commitIndex
+				 * - majority of matchIndex[i] >= n
+				 * - log[n].term == currentTerm
+				 */
 				int n = commitIndex;
-				/* find n that n > commitIndex, majority of matchIndex[i]>=n, log[n].term == currentTerm */
-				/* then set commitIndex to that n */
-				for(;;) {
-					n += 1;
+				for(int candidate = logEntryIndex; candidate > commitIndex; candidate--) {
+					if (logEntries[candidate].term != currentTerm) {
+						continue;
+					}
 					int checkServers = 0;
 					for(int i = 1; i <= NUM_SERVERS; i++) {
 						/* dont check own matchIndex */
 						if(i == id) {
 							continue;
 						}
-						if(matchIndex[i-1] >= n) {
+						if(matchIndex[i-1] >= candidate) {
 							checkServers += 1;
 						}
 					}
-					if(checkServers < (int)(NUM_SERVERS / 2)) {
-						break;
-					}
-					if(n > logEntryIndex || logEntries[n].term != currentTerm) {
+					if(checkServers >= (int)(NUM_SERVERS / 2)) {
+						n = candidate;
 						break;
 					}
 				}
-				n -= 1; /* sub 1 since loop adds 1 then breaks if doesn't satisfy constraints */
-				commitIndex = n; /* if no such n, then will stay the same */
+				commitIndex = n;
 
 				break;
 			default:
