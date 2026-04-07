@@ -104,7 +104,7 @@ int delay_traffic(int source, int destination) {
 	int n = rand() % 100;
 
 	if (n < delay_probability()) {
-		printf("\033[95m[DELAY]\033[0m Delaying traffic for %f sec | src: %d -> dest: %d\n", delay_length(), source, destination);
+		printf("\033[95m[DELAY]\033[0m Delaying traffic for %.2f sec | src: %d -> dest: %d\n", delay_length(), source, destination);
 		return 1;
 	}
 	return 0;
@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
 
 	srand(time(NULL));
 
-	printf("DROP_PROBABILITY: %f%%\n", drop_probability());
+	printf("DROP_PROBABILITY: %.2f%%\n", drop_probability());
 
 	/* Setup listening socket for each route */
 	for (int i = 0; i < NUM_SERVERS; i++) {
