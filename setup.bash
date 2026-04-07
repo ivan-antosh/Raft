@@ -55,7 +55,8 @@ tmux new-session -d -s $SESSION -n "temp"
 if [ $PROXY_ENABLED -eq 1 ]; then
 	tmux new-window -t $SESSION -n "proxy"
 
-	CMD="DROP_PROBABILITY=$DROP_PROBABILITY DELAY_PROBABILITY=$DELAY_PROBABILITY DELAY_LENGTH=$DELAY_LENGTH $PROXY_EXE $(getProxy 1) $(getProxy 2) $(getProxy 3) $(getProxy 4) $(getProxy 5)"
+	ENV="DROP_PROBABILITY=$DROP_PROBABILITY DELAY_PROBABILITY=$DELAY_PROBABILITY DELAY_LENGTH=$DELAY_LENGTH"
+	CMD="$ENV $PROXY_EXE $(getProxy 1) $(getProxy 2) $(getProxy 3) $(getProxy 4) $(getProxy 5)"
 
 	tmux send-keys -t $SESSION:proxy "$CMD" C-m
 
@@ -66,7 +67,8 @@ fi
 for ((i = 1; i < (NUM_SERVERS + 1); i++)); do
 	tmux new-window -t $SESSION -n "server$i"
 
-	CMD="PROXY_ENABLED=$PROXY_ENABLED ELECTION_TIME=$ELECTION_TIME $SERVER_EXE $i $((SERVER_PORT_NUM + i)) $(getServer $i 0) $(getServer $i 1) $(getServer $i 2) $(getServer $i 3)"
+	ENV="PROXY_ENABLED=$PROXY_ENABLED ELECTION_TIME=$ELECTION_TIME"
+	CMD="$ENV $SERVER_EXE $i $((SERVER_PORT_NUM + i)) $(getServer $i 0) $(getServer $i 1) $(getServer $i 2) $(getServer $i 3)"
 
 	tmux send-keys -t $SESSION:"server$i" "$CMD" C-m
 
