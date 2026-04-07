@@ -112,7 +112,7 @@ void applyOldestLog() {
 				/* update state value */
 				state->val = val;
 			}
-			printf("Applied PUT for %s with val %d\n", key, val);
+			printf("Applied: PUT for %s with val %d\n", key, val);
 			break;
 		case GET:
 			/* nothing to commit for GET. Only handle as LEADER */
@@ -120,7 +120,7 @@ void applyOldestLog() {
 				if(state == NULL) {
 					printf("No value for %s\n", key);
 				} else {
-					printf("Value for %s is %d\n", key, state->val);
+					printf("Value for %s is: %d\n", key, state->val);
 				}
 			}
 			break;
@@ -130,10 +130,11 @@ void applyOldestLog() {
 				ListRemove(stateMachine);
 				StateEntryFree(state);
 			}
-			printf("Applied DEL for %s\n", key);
+			printf("Applied: DEL for %s\n", key);
 			break;
 		case NOOP:
-			printf("NOOP\n");
+			/* nothing to do for noop */
+			break;
 	}
 }
 
@@ -330,7 +331,6 @@ RPCHandlerResult RPCHandler(int s, fd_set *master, int id) {
 			int numEntries = ntohl(appendMsg.entriesLen);
 			LogEntry *entries = NULL;
 			if(numEntries > 0) {
-				printf("GOT NUMERNTRIES %d\n", numEntries);
 				size_t totalBytesToRec = numEntries * sizeof(LogEntry);
 				entries = getMsgEntries(s, totalBytesToRec);
 				if(!entries) {
@@ -633,7 +633,6 @@ void *AppendEntryThread(void *args) {
 		if(!success) {
 			followerNextIndex -= 1;
 			if(followerNextIndex < 1) {
-				printf("decremented follower next index to less than 1, setting to 1\n");
 				followerNextIndex = 1;
 			}
 		}
@@ -706,7 +705,7 @@ int handle_new_connection(int listener, fd_set *master, int *fdmax)
 		}
 	}
 	if (!proxyEnabled()) {
-		printf("Connected to %d\n", id);
+		printf("Connected to server with id: %d\n", id);
 	}
 	return 1;
 }
@@ -777,7 +776,7 @@ int connect_to_server(ServerInfo *serverInfo, fd_set *master, int *fdmax, int id
         exit(1);
     }
 		if (!proxyEnabled()) {
-			printf("Connected to %d\n", serverInfo->id);
+			printf("Connected to server with id: %d\n", serverInfo->id);
 		}
 
     return 1;
@@ -857,8 +856,6 @@ int main(int argc, char *argv[]) {
 	FD_SET(STDIN, &stdin_fd);
 
 	/* init timers */
-	// srand(time(NULL) ^ id);
-	// electionTimerVal = (rand() % 1001 + 1000) * 1000; /* between 1000-2000 ms */
 	electionTimerVal = 1000000 + (((id + NUM_SERVERS - 1) % NUM_SERVERS) * 200000);
 	electionTimerVal_sec = electionTimerVal / 1000000;
 	electionTimerVal_usec = electionTimerVal % 1000000;
@@ -879,7 +876,6 @@ int main(int argc, char *argv[]) {
 			increaseLogEntries(DEFAULT_LOG_SIZE);
 		}
 	}
-	printf("State: currentTerm %d votedFor %d logEntryIndex %d logEntrySize %d\n", currentTerm, votedFor, logEntryIndex, logEntriesSize);
 	stateMachine = ListCreate();
 
 	int neededConnections = NUM_SERVERS / 2;
@@ -924,10 +920,8 @@ int main(int argc, char *argv[]) {
 
 		/* if not connected to majority of servers, dont proceed */
 		if(numConnections < neededConnections) {
-			//printf("need more connections %d\n", numConnections);
 			continue;
 		}
-		//printf("have enough connections %d\n", numConnections);
 
 		/* for all server states: */
 		/* if commit index is larger than last applied, increase last applied and commit new log */
@@ -940,7 +934,6 @@ int main(int argc, char *argv[]) {
 			case FOLLOWER:
 				int resetTimer = 0;
 				read_fds = master;
-				//printf("follower select, with timer %ld %ld\n", electionTimer.tv_sec, electionTimer.tv_usec);
 				check = select(fdmax + 1, &read_fds, NULL, NULL, &electionTimer);
 				if(check == -1) {
 					perror("select: read on follower");
@@ -1149,9 +1142,7 @@ int main(int argc, char *argv[]) {
 
 				int appendEntriesThreadCreated[NUM_SERVERS - 1] = {0};
 				for(int i = 0; i < (NUM_SERVERS-1); i++) {
-					//printf("For id %d, have socket %d\n", i, servers[i].sockfd);
 					if(servers[i].sockfd == -1) {
-						//printf("NOT making thread for id %d\n", i);
 						continue;
 					}
 					appendEntriesThreadArgs[i].sockfd = servers[i].sockfd;
