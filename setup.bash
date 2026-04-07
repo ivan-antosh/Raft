@@ -15,12 +15,14 @@ DELAY_PROBABILITY=0
 DELAY_LENGTH=1.5
 
 print_usage() {
-	P="[-p] enable proxy"
-	E="[-e] election time"
-	R="[-r] drop probability"
-	D="[-d] delay probability"
-	L="[-l] delay length"
-	printf "Usage: ./setup.bash %s %s %s %s %s\n" "$P" "$E" "$R" "$D" "$L"
+	echo "Usage: ./setup.bash [OPTIONS]"
+	echo ""
+	echo "  -p              Enable proxy server"
+	echo "  -e TIME         Election timeout in seconds (default: 1)"
+	echo "  -r PROB         Drop probability 0-100% (default: 0)"
+	echo "  -d PROB         Delay probability 0-100% (default: 0)"
+	echo "  -l LENGTH       Delay length in seconds (default: 1.5)"
+	echo "  -h              Show this help"
 	exit 2
 }
 
