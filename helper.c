@@ -292,3 +292,27 @@ float electionTime() {
 		 return atof(electionTimeEnv);
 	return 1;
 }
+
+/* get the percent chance a packet gets dropped by the proxy */
+float drop_probability() {
+	const char *dropProbEnv = getenv("DROP_PROBABILITY");
+	if(dropProbEnv != NULL)
+		return atof(dropProbEnv);
+	return 0; /* Default - 0% chance of dropping a traffic */
+}
+
+/* get the percent chance a packet gets delayed by the proxy */
+float delay_probability() {
+	const char *delayProbEnv = getenv("DROP_PROBABILITY");
+	if(delayProbEnv != NULL)
+		return atof(delayProbEnv);
+	return 0; /* Default - 0% chance of delaying traffic */
+}
+
+/* get the delay length for when a packet is delayed by the proxy */
+float delay_length() {
+	const char *delayLengthEnv = getenv("DELAY_LENGTH");
+	if(delayLengthEnv != NULL)
+		return atof(delayLengthEnv);
+	return 0; /* Default - 0 second delay */
+}

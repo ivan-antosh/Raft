@@ -27,7 +27,11 @@ int get_listener_socket(char *portNum);
 void *get_in_addr(struct sockaddr *sa);
 void close_connection(int s, fd_set *master, ServerInfo *serverInfo, pthread_mutex_t *lock);
 
+/* Envoronment variable getters */
 int proxyEnabled();
 float electionTime();
+float drop_probability();
+float delay_probability();
+float delay_length();
 
 #endif
