@@ -14,23 +14,56 @@ DROP_PROBABILITY=0
 DELAY_PROBABILITY=0
 DELAY_LENGTH=1.5
 
-# Check for -proxy flag
-if [ "$1" == "-proxy" ]; then
-	PROXY_ENABLED=1
-	ELECTION_TIME=3
-	# check for DROP_PROBABILITY after -proxy flag
-	if [ -z "$2" ]; then
-		echo "Error: -proxy flag requires a drop probability"
-		echo "./setup.bash -proxy <Drop Probability>"
-		exit 1
-	elif [ "$2" -lt 0 ] || [ "$2" -gt 100 ]; then
-		echo "Drop Probability must be between 0 and 100"
-		exit 2
-	else
-		DROP_PROBABILITY=$2
-		DELAY_PROBABILITY=$2
-	fi
-fi
+print_usage() {
+	P="[-p] enable proxy"
+	E="[-e] election time"
+	R="[-r] drop probability"
+	D="[-d] delay probability"
+	L="[-l] delay length"
+	printf "Usage: ./setup.bash %s %s %s %s %s\n" "$P" "$E" "$R" "$D" "$L"
+	exit 2
+}
+
+numCheck='^([0-9]+([.][0-9]*)?|[.][0-9]+)$'
+while getopts 'pe:r:d:l:h' flag; do
+	case "${flag}" in
+	p) PROXY_ENABLED=1 ;;
+	e)
+		ELECTION_TIME=${OPTARG}
+		if ! [[ $ELECTION_TIME =~ $numCheck ]]; then
+			print_usage
+		fi
+		;;
+	r)
+		DROP_PROBABILITY=${OPTARG}
+		if ! [[ $DROP_PROBABILITY =~ $numCheck ]]; then
+			print_usage
+		elif (($(echo "$DROP_PROBABILITY < 0 || $DROP_PROBABILITY > 100" | bc -l))); then
+			print_usage
+		fi
+		;;
+	d)
+		DELAY_PROBABILITY=${OPTARG}
+		if ! [[ $DELAY_PROBABILITY =~ $numCheck ]]; then
+			print_usage
+		elif (($(echo "$DELAY_PROBABILITY < 0 || $DELAY_PROBABILITY > 100" | bc -l))); then
+			print_usage
+		fi
+		;;
+	l)
+		DELAY_LENGTH=${OPTARG}
+		if ! [[ $DELAY_LENGTH =~ $numCheck ]]; then
+			print_usage
+		fi
+		;;
+	h)
+		print_usage
+		;;
+	*)
+		print_usage
+		;;
+	esac
+done
 
 # gets formated proxy args
 getProxy() {
