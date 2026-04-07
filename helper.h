@@ -28,6 +28,6 @@ void *get_in_addr(struct sockaddr *sa);
 void close_connection(int s, fd_set *master, ServerInfo *serverInfo, pthread_mutex_t *lock);
 
 int proxyEnabled();
-int electionTime();
+float electionTime();
 
 #endif

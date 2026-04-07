@@ -286,7 +286,7 @@ int proxyEnabled() {
 }
 
 /* gets the election timeout value from a environment variable set in setup script */
-int electionTime() {
+float electionTime() {
 	const char*electionTimeEnv = getenv("ELECTION_TIME");
 	if (electionTimeEnv != NULL)
 		 return atof(electionTimeEnv);
